@@ -129,11 +129,11 @@ export default function App() {
     return () => window.clearInterval(intervalId);
   }, [isTalking, refereeMessage]);
 
-  // --- Confetti when our own find is accepted.
+  // --- Celebrate only the first accepted find in a round.
   const lastCelebrated = useRef<string | null>(null);
   useEffect(() => {
     const v = game.lastVerdict;
-    if (!v || !v.verdict.verified || v.playerId !== game.playerId) return;
+    if (!v || !v.verdict.verified || v.placement !== 1) return;
     const key = `${round?.roundNumber}-${v.playerId}`;
     if (lastCelebrated.current === key) return;
     lastCelebrated.current = key;
@@ -394,8 +394,7 @@ export default function App() {
       isCountdown={room!.status === 'COUNTDOWN'}
       canPress={me?.status === 'SEARCHING'}
       canSkip={
-        elapsedSeconds >= 30
-        && room!.status === 'HUNTING'
+        room!.status === 'HUNTING'
         && Boolean(me)
         && me?.status !== 'FOUND'
         && me?.status !== 'VERIFYING'
@@ -501,8 +500,7 @@ function PlayerTile({
       <p className={`absolute top-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
         nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
       }`}>
-        {player.name}
-        {isLocal ? ' (You)' : ''}
+        {isLocal ? 'You' : player.name}
       </p>
 
       {showCrown && (
@@ -520,7 +518,7 @@ function PlayerTile({
 
       {statusOverlay && (
         <div
-          className="absolute inset-0 z-20 flex items-center justify-center bg-spotle-navy/80"
+          className="absolute inset-0 z-0 flex items-center justify-center bg-spotle-navy/80"
           role="status"
         >
           <p className="rounded-full border-4 border-spotle-cream bg-spotle-coral px-5 py-4 text-center text-xl text-spotle-navy md:text-2xl">
@@ -530,7 +528,7 @@ function PlayerTile({
       )}
 
       {isSkipped && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-spotle-navy/75" role="status">
+        <div className="absolute inset-0 z-0 flex items-center justify-center bg-spotle-navy/75" role="status">
           <p className="border-4 border-red-600 bg-spotle-cream px-5 py-4 text-center text-2xl text-red-700 md:text-4xl">
             SKIPPED
           </p>
@@ -671,7 +669,10 @@ function PlayingScreen({
               }
               facingMode={facingMode}
               showCrown={player.placement === 1 && refereePlayerId !== player.id}
-              nameOnRight={players.length >= 3 && (index === 1 || index === 3)}
+              nameOnRight={
+                (players.length === 2 && index === 1)
+                || (players.length >= 3 && (index === 1 || index === 3))
+              }
               isSkipped={skippedPlayers.includes(player.id) || player.status === 'SKIPPED'}
               refereeMessage={
                 refereePlayerId === player.id && player.status !== 'SKIPPED'
@@ -692,8 +693,17 @@ function PlayingScreen({
         </div>
       )}
 
-      {players.length <= 2 && (
-        <div className="pointer-events-none absolute right-4 top-4 z-50">
+      {players.length <= 2
+        && !refereeMessage
+        && !captureError
+        && !players.some((player) => player.status === 'VERIFYING') && (
+        <div
+          className={`pointer-events-none absolute z-50 ${
+            players.length === 2
+              ? 'bottom-[9rem] left-1/2 -translate-x-1/2'
+              : 'right-4 top-4'
+          }`}
+        >
           <TargetPanel round={round} />
         </div>
       )}

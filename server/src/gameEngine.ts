@@ -225,7 +225,6 @@ export function giveUpPlayer(io: GameServer, room: RoomState, playerId: string):
   const round = room.currentRound;
 
   if (!player || !round || room.status !== 'HUNTING') return;
-  if (Date.now() - round.startTime < 30_000) return;
   if (player.status === 'FOUND' || player.status === 'VERIFYING' || player.status === 'SKIPPED') {
     return;
   }
