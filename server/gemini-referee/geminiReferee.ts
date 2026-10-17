@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import type { ScavengerItem } from "../../shared/game.js";
 import type {
   MatchQuality,
   VerificationResponse,
@@ -213,6 +214,8 @@ export async function verifyObjectPhotoDetailed({
   targetObject,
   imageBase64,
   playerName,
+  acceptedVariations,
+  cheatRisks,
 }: VerifyObjectPhotoInput): Promise<VerifyResult> {
   if (!targetObject?.trim()) {
     throw new Error("targetObject is required");
@@ -249,7 +252,15 @@ export async function verifyObjectPhotoDetailed({
             role: "user",
             parts: [
               {
-                text: `Player "${who}" claims they found: "${targetObject.trim()}". Referee this photo now.`,
+                text: [
+                  `Player "${who}" claims they found: "${targetObject.trim()}". Referee this photo now.`,
+                  acceptedVariations?.length
+                    ? `Accepted physical variations: ${acceptedVariations.join(", ")}.`
+                    : "",
+                  cheatRisks?.length
+                    ? `Item-specific screen/photo cheat risks to check: ${cheatRisks.join(", ")}.`
+                    : "",
+                ].filter(Boolean).join(" "),
               },
               { inlineData: { mimeType, data } },
             ],
@@ -302,6 +313,84 @@ export async function verifyObjectPhoto(
 ): Promise<VerificationResponse> {
   const { verdict } = await verifyObjectPhotoDetailed(input);
   return verdict;
+}
+
+export async function verifyObjectHunt(
+  item: ScavengerItem,
+  capturedFrameBase64: string,
+  playerName: string,
+): Promise<VerificationResponse> {
+  return verifyObjectPhoto({
+    targetObject: item.name,
+    imageBase64: capturedFrameBase64,
+    playerName,
+    acceptedVariations: item.aliases,
+    cheatRisks: item.cheatRisks,
+  });
+}
+
+export async function verifyPlayerHunt({
+  targetSelfieBase64,
+  capturedFrameBase64,
+  targetName,
+  hunterName,
+}: {
+  targetSelfieBase64: string;
+  capturedFrameBase64: string;
+  targetName: string;
+  hunterName: string;
+}): Promise<VerificationResponse> {
+  if (!targetSelfieBase64.trim() || !capturedFrameBase64.trim()) {
+    throw new Error('Both the registered selfie and captured frame are required.');
+  }
+
+  const targetImage = sanitizeImageBase64(targetSelfieBase64);
+  const capturedImage = sanitizeImageBase64(capturedFrameBase64);
+  const ai = getClient();
+  const chain = getModelChain();
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+  let lastError: unknown;
+
+  for (const model of chain) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 500) break;
+    const controller = new AbortController();
+    const budget = Math.min(PER_MODEL_TIMEOUT_MS, remaining);
+    const timer = setTimeout(() => controller.abort(), budget);
+
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: `Compare these two photos. Image 1 is the registered selfie of ${targetName}; image 2 is ${hunterName}'s live camera capture. Verify only if the same person is clearly visible in image 2. Reject a photo of a screen or a different person. Return a concise referee comment.` },
+            { text: 'Image 1: registered target selfie.' },
+            { inlineData: { mimeType: targetImage.mimeType, data: targetImage.data } },
+            { text: 'Image 2: captured hunt frame.' },
+            { inlineData: { mimeType: capturedImage.mimeType, data: capturedImage.data } },
+          ],
+        }],
+        config: {
+          systemInstruction: 'You are Spotle.online\'s identity referee. Compare the person in the registered selfie with the person in the hunt frame. Do not infer identity from clothing or surroundings alone. Detect screen-photo cheating. Return strict JSON matching the verification schema.',
+          responseMimeType: 'application/json',
+          responseSchema: VERIFICATION_SCHEMA,
+          temperature: 0.2,
+          abortSignal: controller.signal,
+        },
+      });
+      if (!response.text) throw new Error('Gemini returned an empty verification payload');
+      return normalizeVerdict(JSON.parse(response.text) as Partial<VerificationResponse>);
+    } catch (error) {
+      lastError = error;
+      if (!controller.signal.aborted && !isFalloverError(error)) throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : String(lastError ?? 'time budget exhausted');
+  throw new Error(`Player verification failed across the model chain. Last error: ${detail}`);
 }
 
 export async function checkGeminiApiKey(): Promise<{

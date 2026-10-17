@@ -1,19 +1,125 @@
-import type { ScavengerItem } from '../../../shared/items.js';
-import { getAllObjects } from '../../gemini-referee/objectPool.js';
+import type { ScavengerItem, ThemeType } from '../../../shared/game.js';
 
-export const MASTER_ITEM_DATABASE: ScavengerItem[] = getAllObjects().map((item) => ({
-  id: item.id,
-  name: item.name,
-  difficulty: item.difficulty,
-  hint: item.examples,
-  visualType: 'emoji',
-  visualValue: item.emoji,
-  aliases: [item.name, item.examples, ...item.examples.split(',').map((entry) => entry.trim()).filter(Boolean)],
-  cheatRisks: ['screen photo', 'browser image search', 'monitor display', 'phone wallpaper'],
-}));
+export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
+  {
+    id: 'uf-century-tower',
+    name: 'Century Tower',
+    themes: ['UF_SWAMP'],
+    difficulty: 'MEDIUM',
+    emoji: '🔍',
+    aliases: ['century tower', 'bell tower', 'carillon'],
+    cheatRisks: ['google images on laptop', 'phone wallpaper'],
+  },
+  {
+    id: 'uf-french-fries',
+    name: '"The French Fries" Sculpture',
+    themes: ['UF_SWAMP'],
+    difficulty: 'MEDIUM',
+    emoji: '🍟',
+    aliases: ['french fries sculpture', 'alachua sculpture', 'yellow metal sculpture'],
+    cheatRisks: ['instagram photos', 'reddit screenshots'],
+  },
+  {
+    id: 'uf-gator-card',
+    name: 'Gator 1 Card / Student ID',
+    themes: ['UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '🪪',
+    aliases: ['student id', 'gator 1', 'id badge', 'college id'],
+    cheatRisks: ['digital id on phone screen'],
+  },
+  {
+    id: 'uf-bull-gator',
+    name: 'Bull Gator Statue',
+    themes: ['UF_SWAMP'],
+    difficulty: 'HARD',
+    emoji: '🐊',
+    aliases: ['bull gator', 'bronze alligator statue', 'stadium gator'],
+    cheatRisks: ['gator athletics wallpaper'],
+  },
+  {
+    id: 'hack-lanyard',
+    name: 'Event Badge / Lanyard',
+    themes: ['HACKATHON', 'UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '🏷️',
+    aliases: ['lanyard', 'hackathon badge', 'pass'],
+    cheatRisks: ['photo of a badge online'],
+  },
+  {
+    id: 'hack-energy-drink',
+    name: 'Energy Drink Can',
+    themes: ['HACKATHON', 'GENERAL'],
+    difficulty: 'EASY',
+    emoji: '⚡',
+    aliases: ['celsius', 'red bull', 'monster', 'energy drink'],
+    cheatRisks: ['google image search'],
+  },
+  {
+    id: 'hack-stickers-laptop',
+    name: 'Laptop Covered in Stickers',
+    themes: ['HACKATHON'],
+    difficulty: 'MEDIUM',
+    emoji: '💻',
+    aliases: ['sticker bombed laptop', 'macbook stickers'],
+    cheatRisks: ['desktop wallpaper'],
+  },
+  {
+    id: 'gen-headphones',
+    name: 'Headphones or Earbuds',
+    themes: ['GENERAL', 'HACKATHON'],
+    difficulty: 'EASY',
+    emoji: '🎧',
+    aliases: ['airpods', 'earphones', 'headset'],
+    cheatRisks: ['apple store webpage screenshot'],
+  },
+  {
+    id: 'gen-water-bottle',
+    name: 'Reusable Water Bottle',
+    themes: ['GENERAL', 'HACKATHON', 'OUTDOORS'],
+    difficulty: 'EASY',
+    emoji: '🍶',
+    aliases: ['water bottle', 'hydro flask', 'flask'],
+    cheatRisks: ['photo of water bottle on screen'],
+  },
+  {
+    id: 'gen-keys',
+    name: 'Keyring with Keys',
+    themes: ['GENERAL'],
+    difficulty: 'EASY',
+    emoji: '🔑',
+    aliases: ['car keys', 'house keys', 'keychain'],
+    cheatRisks: ['stock photo of keys'],
+  },
+  {
+    id: 'out-blue-light',
+    name: 'Blue Light Emergency Pole',
+    themes: ['OUTDOORS', 'UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '🚨',
+    aliases: ['emergency blue light', 'blue light phone', 'campus call box'],
+    cheatRisks: ['campus safety webpage'],
+  },
+  {
+    id: 'out-bicycle',
+    name: 'Bicycle or Scooter',
+    themes: ['OUTDOORS'],
+    difficulty: 'EASY',
+    emoji: '🚲',
+    aliases: ['bike', 'e-scooter', 'bicycle'],
+    cheatRisks: ['picture of a bike on a screen'],
+  },
+];
 
-export function pickRoundTarget(usedObjectIds: string[] = []): ScavengerItem {
-  const available = MASTER_ITEM_DATABASE.filter((item) => !usedObjectIds.includes(item.id));
-  const pool = available.length > 0 ? available : MASTER_ITEM_DATABASE;
+export function pickThemeTarget(theme: ThemeType, usedObjectIds: string[] = []): ScavengerItem {
+  const eligible = MASTER_ITEM_DATABASE.filter(
+    (item) => item.themes.includes(theme) && !usedObjectIds.includes(item.id),
+  );
+  const pool = eligible.length > 0 ? eligible : MASTER_ITEM_DATABASE.filter((item) => item.themes.includes(theme));
   return pool[Math.floor(Math.random() * pool.length)] ?? MASTER_ITEM_DATABASE[0]!;
+}
+
+export function pickRoundTarget(usedObjectIds: string[] = [], theme: ThemeType | null = 'GENERAL'): ScavengerItem {
+  const effectiveTheme = theme ?? 'GENERAL';
+  return pickThemeTarget(effectiveTheme, usedObjectIds);
 }

@@ -1,25 +1,18 @@
 /**
  * Server-authoritative round loop.
- *
- * Ported from Role 3's Python `game_manager.py` (START_ROUND /
- * PLAYER_FOUND_ITEM / winner / scoreboard) and extended with:
- *   - real Gemini verification before a find counts,
- *   - placement scoring (1st 4pts, 2nd 3, 3rd 2, 4th 1),
- *   - targets drawn from the curated 74-object pool,
- *   - a per-round time limit.
- *
- * The client is never trusted: it sends a photo, the server decides.
  */
 import type { Server } from 'socket.io';
 import type {
   ClientToServerEvents,
+  Player,
   RoomState,
   RoundData,
   ServerToClientEvents,
+  VerificationResponse,
 } from '../../shared/game.js';
 import { pointsForPlacement } from '../../shared/game.js';
-import { getObjectById, getRandomTargetObject } from '../gemini-referee/objectPool.js';
-import { verifyObjectPhoto } from '../gemini-referee/geminiReferee.js';
+import { verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
+import { MASTER_ITEM_DATABASE, pickThemeTarget } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
 
 type GameServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -28,7 +21,6 @@ const COOLDOWN_MS = 3000;
 const ROUND_RESULT_PAUSE_MS = 4000;
 const COUNTDOWN_MS = 3000;
 
-/** Per-room timers so a disconnect or reset can cancel pending work. */
 const roundTimers = new Map<string, NodeJS.Timeout[]>();
 
 function schedule(pin: string, fn: () => void, ms: number): void {
@@ -47,39 +39,143 @@ export function broadcastRoom(io: GameServer, room: RoomState): void {
   io.to(room.roomCode).emit('room:update', serializeRoom(room));
 }
 
-/** Host pressed START GAME. */
+export function assignTargets(players: Player[]): Map<string, Player> {
+  const shuffled = [...players];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex]!, shuffled[index]!];
+  }
+  const targetMap = new Map<string, Player>();
+  for (let i = 0; i < shuffled.length; i += 1) {
+    targetMap.set(shuffled[i].id, shuffled[(i + 1) % shuffled.length]);
+  }
+  return targetMap;
+}
+
+function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: string, base: RoundData): RoundData {
+  const player = room.players[playerId];
+  if (room.settings.mode !== 'ME' || !player?.targetPlayerId) {
+    return { ...base, mode: 'OBJECTS' };
+  }
+
+  const target = room.players[player.targetPlayerId];
+  if (!target) {
+    return {
+      ...base,
+      mode: 'ME',
+      targetObject: 'Hunt the target player!',
+      difficulty: 'MEDIUM',
+      targetPlayerId: player.targetPlayerId,
+    };
+  }
+
+  return {
+    ...base,
+    mode: 'ME',
+    roundNumber,
+    targetObject: `Hunt ${target.name}!`,
+    difficulty: 'MEDIUM',
+    targetPlayerId: target.id,
+    targetPlayerSelfie: target.selfieBase64,
+  };
+}
+
+export function maybeStartMeRound(io: GameServer, room: RoomState): boolean {
+  if (room.settings.mode !== 'ME' || room.status !== 'SELFIE_REGISTRATION') return false;
+  const players = Object.values(room.players);
+  if (players.length === 0 || players.some((player) => !player.selfieBase64)) return false;
+
+  room.status = 'COUNTDOWN';
+  broadcastRoom(io, room);
+  schedule(room.roomCode, () => beginRound(io, room, 1), COUNTDOWN_MS);
+  return true;
+}
+
 export function startGame(io: GameServer, room: RoomState): void {
   clearTimers(room.roomCode);
   resetForNewGame(room);
+
+  if (room.settings.mode === 'ME') {
+    if (Object.keys(room.players).length < 2) {
+      io.to(room.roomCode).emit('game:error', { message: 'Player Hunt needs at least two players.' });
+      return;
+    }
+    room.status = 'SELFIE_REGISTRATION';
+    broadcastRoom(io, room);
+    io.to(room.roomCode).emit('PROMPT_SELFIE_REGISTRATION', { timeoutMs: 30000 });
+    schedule(room.roomCode, () => {
+      if (room.status !== 'SELFIE_REGISTRATION') return;
+      resetForNewGame(room);
+      broadcastRoom(io, room);
+      io.to(room.roomCode).emit('game:error', { message: 'Selfie registration timed out. Start the game again when everyone is ready.' });
+    }, 30000);
+    return;
+  }
+
   room.status = 'COUNTDOWN';
   broadcastRoom(io, room);
   schedule(room.roomCode, () => beginRound(io, room, 1), COUNTDOWN_MS);
 }
 
 export function beginRound(io: GameServer, room: RoomState, roundNumber: number): void {
-  // Demo/test hook: pin the target so a run is reproducible.
-  //   SPOTLE_FORCE_TARGET=hammer npm start
-  const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
-  const forced = forcedId ? getObjectById(forcedId) : undefined;
+  if (room.settings.mode === 'ME') {
+    const targets = assignTargets(Object.values(room.players));
+    for (const player of Object.values(room.players)) {
+      player.status = 'SEARCHING';
+      player.targetPlayerId = targets.get(player.id)?.id;
+      delete player.placement;
+      delete player.reactionMs;
+    }
 
-  const target = forced ?? getRandomTargetObject({ excludeIds: room.usedObjects });
-  if (!target) {
-    // Pool exhausted - recycle rather than stalling the game.
-    room.usedObjects = [];
-  }
-  const pick = target ?? getRandomTargetObject({});
-  if (!pick) {
-    io.to(room.roomCode).emit('game:error', { message: 'Object pool is empty.' });
+    const baseRound: RoundData = {
+      roundNumber,
+      mode: 'ME',
+      targetObject: 'Hunt the target player!',
+      difficulty: 'MEDIUM',
+      startTime: Date.now(),
+      finishers: [],
+    };
+
+    room.currentRound = baseRound;
+    room.status = 'HUNTING';
+    broadcastRoom(io, room);
+
+    for (const player of Object.values(room.players)) {
+      const playerRound = buildRoundForPlayer(room, roundNumber, player.id, baseRound);
+      io.to(player.id).emit('round:start', playerRound);
+    }
+
+    schedule(
+      room.roomCode,
+      () => {
+        if (room.status === 'HUNTING' && room.currentRound?.roundNumber === roundNumber) {
+          for (const player of Object.values(room.players)) {
+            if (player.status !== 'FOUND') player.status = 'SKIPPED';
+          }
+          endRound(io, room);
+        }
+      },
+      room.settings.roundTimeLimitSec * 1000,
+    );
     return;
   }
 
+  const theme = room.settings.theme ?? 'GENERAL';
+  const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
+  // Resolve the override separately: `(forcedId && find(...)) ?? fallback`
+  // yields '' when the env var is set but empty, because ?? only catches
+  // null/undefined - which then blew up on pick.id.
+  const forced = forcedId
+    ? MASTER_ITEM_DATABASE.find((item) => item.id === forcedId)
+    : undefined;
+  const pick = forced ?? pickThemeTarget(theme, room.usedObjects);
+
   const round: RoundData = {
     roundNumber,
+    mode: 'OBJECTS',
     targetId: pick.id,
     targetObject: pick.name,
-    targetIconUrl: pick.flatSvgUrl,
-    imageAttribution: pick.imageAttribution,
-    hint: pick.examples,
+    emoji: pick.emoji,
     difficulty: pick.difficulty,
     startTime: Date.now(),
     finishers: [],
@@ -98,7 +194,6 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
   broadcastRoom(io, room);
   io.to(room.roomCode).emit('round:start', round);
 
-  // Safety net: never let a round hang forever.
   schedule(
     room.roomCode,
     () => {
@@ -113,10 +208,6 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
   );
 }
 
-/**
- * A player pressed FOUND IT. Runs Gemini, and on success locks in their
- * placement. Players who have already finished cannot score twice.
- */
 export async function handleAttempt(
   io: GameServer,
   room: RoomState,
@@ -133,13 +224,33 @@ export async function handleAttempt(
   player.status = 'VERIFYING';
   broadcastRoom(io, room);
 
-  let verdict;
+  let verdict: VerificationResponse;
   try {
-    verdict = await verifyObjectPhoto({
-      targetObject: round.targetObject,
-      imageBase64: imageDataUrl,
-      playerName: player.name,
-    });
+    if (room.settings.mode === 'ME') {
+      const targetPlayer = player.targetPlayerId ? room.players[player.targetPlayerId] : undefined;
+      if (!targetPlayer?.selfieBase64) {
+        player.status = 'SEARCHING';
+        broadcastRoom(io, room);
+        return;
+      }
+      verdict = await verifyPlayerHunt({
+        targetSelfieBase64: targetPlayer.selfieBase64,
+        capturedFrameBase64: imageDataUrl,
+        targetName: targetPlayer.name,
+        hunterName: player.name,
+      });
+    } else {
+      const item = round.targetId
+        ? MASTER_ITEM_DATABASE.find((candidate) => candidate.id === round.targetId)
+        : undefined;
+      verdict = item
+        ? await verifyObjectHunt(item, imageDataUrl, player.name)
+        : await verifyObjectPhoto({
+            targetObject: round.targetObject,
+            imageBase64: imageDataUrl,
+            playerName: player.name,
+          });
+    }
   } catch (error) {
     console.error('[gameEngine] verification error:', error);
     if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) {
@@ -163,10 +274,7 @@ export async function handleAttempt(
     return;
   }
 
-  // The round may have ended while Gemini was thinking.
-  if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) {
-    return;
-  }
+  if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) return;
 
   if (!verdict.verified) {
     player.status = 'PENALIZED';
@@ -191,7 +299,6 @@ export async function handleAttempt(
     return;
   }
 
-  // Accepted - lock in placement and points.
   round.finishers.push(playerId);
   const placement = round.finishers.length;
   const pointsAwarded = pointsForPlacement(placement);
@@ -220,7 +327,6 @@ export async function handleAttempt(
   }
 }
 
-/** A player gave up on their own attempt without affecting other players. */
 export function giveUpPlayer(io: GameServer, room: RoomState, playerId: string): void {
   const player = room.players[playerId];
   const round = room.currentRound;
@@ -275,7 +381,6 @@ export function endRound(io: GameServer, room: RoomState): void {
   }
 }
 
-/** Host advances past the scoreboard. */
 export function nextRound(io: GameServer, room: RoomState): void {
   if (room.status !== 'ROUND_RESULT') return;
   const next = (room.currentRound?.roundNumber ?? 0) + 1;

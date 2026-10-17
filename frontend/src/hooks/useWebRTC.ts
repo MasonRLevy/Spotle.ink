@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Peer, { type MediaConnection } from 'peerjs';
-import { captureVideoFrame } from '../utils/captureFrame';
+import { captureVideoFrame, type CaptureFrameOptions } from '../utils/captureFrame';
 
 export type FacingMode = 'user' | 'environment';
+
+/**
+ * Which camera a player starts on.
+ *
+ * 'user' (selfie) because the first thing anyone sees is the lobby, where the
+ * point is seeing each other's faces. Players flip to the rear camera with the
+ * flip button once they are actually hunting.
+ */
+const INITIAL_FACING_MODE: FacingMode = 'user';
 
 export interface RemotePeer {
   playerId: string;
@@ -16,6 +25,13 @@ export interface RemoteMedia {
   name: string;
   stream: MediaStream;
 }
+
+/** Voice chat capture. Echo cancellation matters: everyone is on speakers. */
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
 
 const VIDEO_CONSTRAINTS = (facingMode: FacingMode): MediaTrackConstraints => ({
   facingMode: { ideal: facingMode },
@@ -47,9 +63,11 @@ export function useWebRTC(options: {
   const [localPeerId, setLocalPeerId] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteMedia, setRemoteMedia] = useState<Record<string, RemoteMedia>>({});
-  const [facingMode, setFacingMode] = useState<FacingMode>('environment');
+  const [facingMode, setFacingMode] = useState<FacingMode>(INITIAL_FACING_MODE);
   const [error, setError] = useState<string | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [micAvailable, setMicAvailable] = useState(false);
 
   const localVideoEl = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<Peer | null>(null);
@@ -59,7 +77,7 @@ export function useWebRTC(options: {
   const onPeerIdRef = useRef(onLocalPeerId);
   const localNameRef = useRef(localName);
   const localPlayerIdRef = useRef(localPlayerId);
-  const facingRef = useRef<FacingMode>('environment');
+  const facingRef = useRef<FacingMode>(INITIAL_FACING_MODE);
   const fallbackTimersRef = useRef<number[]>([]);
 
   remotePeersRef.current = remotePeers;
@@ -107,7 +125,7 @@ export function useWebRTC(options: {
     for (const call of callsRef.current.values()) {
       const sender = call.peerConnection
         ?.getSenders()
-        .find((s) => s.track?.kind === 'video' || s.track == null);
+        .find((s) => s.track?.kind === 'video');
       if (sender) {
         replacements.push(sender.replaceTrack(newTrack).then(() => undefined));
       }
@@ -208,10 +226,26 @@ export function useWebRTC(options: {
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: VIDEO_CONSTRAINTS(facingRef.current),
-        });
+        // Ask for mic + camera together (one getUserMedia call - a second
+        // concurrent one freezes mobile WebRTC). If the mic is denied or
+        // missing, retry video-only: losing voice must never lose video.
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: AUDIO_CONSTRAINTS,
+            video: VIDEO_CONSTRAINTS(facingRef.current),
+          });
+        } catch (micError) {
+          console.warn('[webrtc] mic unavailable, continuing without voice:', micError);
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: VIDEO_CONSTRAINTS(facingRef.current),
+          });
+        }
+
+        const audioTracks = stream.getAudioTracks();
+        setMicAvailable(audioTracks.length > 0);
+        setMicEnabled(audioTracks.length > 0 ? audioTracks[0]!.enabled : false);
         if (cancelled) {
           stopStream(stream);
           return;
@@ -373,12 +407,25 @@ export function useWebRTC(options: {
     }
   }, [attachLocalVideo, isFlipping, replaceVideoTrackOnCalls]);
 
-  const captureJpeg = useCallback(() => {
+  /**
+   * Mute/unmute by flipping track.enabled rather than stopping the track.
+   * Stopping would force a renegotiation and the peer would have to re-accept;
+   * `enabled` just stops sending samples and resumes instantly.
+   */
+  const toggleMic = useCallback(() => {
+    const tracks = streamRef.current?.getAudioTracks() ?? [];
+    if (tracks.length === 0) return;
+    const next = !tracks[0]!.enabled;
+    for (const track of tracks) track.enabled = next;
+    setMicEnabled(next);
+  }, []);
+
+  const captureJpeg = useCallback((options: CaptureFrameOptions = {}) => {
     const video = localVideoEl.current;
     if (!video) {
       throw new Error('Local video is not mounted.');
     }
-    return captureVideoFrame(video);
+    return captureVideoFrame(video, options);
   }, []);
 
   return {
@@ -390,6 +437,9 @@ export function useWebRTC(options: {
     error,
     isFlipping,
     cameraReady: Boolean(localStream),
+    micEnabled,
+    micAvailable,
+    toggleMic,
     flipCamera,
     captureJpeg,
   };

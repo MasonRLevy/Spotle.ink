@@ -27,13 +27,16 @@ import {
   joinRoom,
   removePlayer,
   serializeRoom,
+  setMode,
   setPeerId,
+  setTheme,
 } from './rooms.js';
 import {
   broadcastRoom,
   clearTimers,
   giveUpPlayer,
   handleAttempt,
+  maybeStartMeRound,
   nextRound,
   startGame,
 } from './gameEngine.js';
@@ -164,6 +167,36 @@ io.on('connection', (socket) => {
     if (!pin) return;
     const room = setPeerId(pin, socket.id, peerId);
     if (room) broadcastRoom(io, room);
+  });
+
+  socket.on('room:set-theme', ({ theme }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    // Host-only, and only while the game has not started.
+    if (!room || room.hostId !== socket.id || room.status !== 'LOBBY') return;
+    setTheme(room, theme);
+    broadcastRoom(io, room);
+    console.log(`[room] ${room.roomCode} theme set to ${theme ?? 'ANY'}`);
+  });
+
+  socket.on('room:set-mode', ({ mode }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    if (!room || room.hostId !== socket.id || room.status !== 'LOBBY') return;
+    setMode(room, mode);
+    broadcastRoom(io, room);
+  });
+
+  socket.on('SUBMIT_SELFIE', ({ selfieBase64 }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    const player = room?.players[socket.id];
+    if (!room || !player || room.status !== 'SELFIE_REGISTRATION' || room.settings.mode !== 'ME') return;
+    if (!/^data:image\/(jpeg|png|webp);base64,/.test(selfieBase64) || selfieBase64.length > 4_000_000) {
+      socket.emit('game:error', { message: 'That selfie could not be accepted. Capture a new frame.' });
+      return;
+    }
+    player.selfieBase64 = selfieBase64;
+    player.selfieReady = true;
+    broadcastRoom(io, room);
+    maybeStartMeRound(io, room);
   });
 
   socket.on('game:start', () => {

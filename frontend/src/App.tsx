@@ -7,32 +7,62 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import confetti from 'canvas-confetti';
-import { Clock, Crown, SwitchCamera, X } from 'lucide-react';
+import {
+  Clock,
+  Crown,
+  Mic,
+  MicOff,
+  Settings,
+  SwitchCamera,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import spotleLogo from './assets/Spotle_Logo.png';
 import dogMouthClosed from './assets/Spot_mouth_closed.png';
 import dogMouthOpen from './assets/Spot_mouth_open.png';
 import inkRunning from './assets/Ink_running.gif';
+import inkSitting from './assets/Ink_sit.png';
+import inkHouse from './assets/Ink_house.png';
+import grassTexture from './assets/isometric-pixel-art-grass-tile-22c1.png';
+import gatorLogo from './assets/Gator.webp';
+import hornsDownImage from './assets/Screenshot 2026-10-17 at 6.35.02 PM.png';
 import inkPaw from './assets/Ink_paw.png';
+import routeMarker from './assets/route.png';
 import xMarksTheSpot from './assets/X_marks_the_spot.png';
 import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
-import type { Player, RoundData } from '@shared/game';
+import { ThemePicker } from './components/ThemePicker';
+import type { GameMode, Player, RoundData } from '@shared/game';
+import { getTheme } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
+import barkAudioSrc from './assets/sounds/yodguard-friendly-small-dog-bark-2-535476.mp3';
 
 const maxPlayers = 4;
-const dogSpeed = 2;
-const pawPrintSpacing = 50;
+const mobileDogSpeed = 2;
+const desktopDogSpeed = 3.2;
+const pawPrintSpacing = 40;
 const maxPawPrints = 100;
 
 type LobbyPoint = { x: number; y: number };
 type PawPrint = LobbyPoint & { id: number; angle: number };
+type PastChest = LobbyPoint & { id: number };
+type RouteMarker = LobbyPoint & {
+  id: number;
+  angle: number;
+  distanceAlong: number;
+  passed?: boolean;
+};
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
+
+const lobbyButtonClass =
+  'w-full shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-5 py-2.5 text-base text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:py-4 sm:text-xl';
 
 const taskbarHeightClass = 'h-[calc(8rem+var(--spotle-safe-area-bottom))]';
 
@@ -54,6 +84,11 @@ export default function App() {
   const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
   const [joinPin, setJoinPin] = useState('');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHornsDownOpen, setIsHornsDownOpen] = useState(false);
+  const [soundEffectsMuted, setSoundEffectsMuted] = useState(false);
+  const [voiceChatMuted, setVoiceChatMuted] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [flashing, setFlashing] = useState(false);
@@ -65,24 +100,37 @@ export default function App() {
   const [isTalking, setIsTalking] = useState(false);
   const [isMouthOpen, setIsMouthOpen] = useState(false);
   const [isRefereeFading, setIsRefereeFading] = useState(false);
-  const [targetPosition, setTargetPosition] = useState<LobbyPoint | null>(null);
-  const [showTreasureChest, setShowTreasureChest] = useState(true);
+  const [activeX, setActiveX] = useState<LobbyPoint | null>(null);
+  const [pastChests, setPastChests] = useState<PastChest[]>([]);
   const [pawPrints, setPawPrints] = useState<PawPrint[]>([]);
+  const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
+  const [isMoving, setIsMoving] = useState(false);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
+  const barkAudio = useRef(new Audio(barkAudioSrc));
   const correctAudio = useRef(new Audio(correctAudioSrc));
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
   const lobbyRef = useRef<HTMLDivElement | null>(null);
-  const dogRef = useRef<HTMLImageElement | null>(null);
+  const dogRef = useRef<HTMLDivElement | null>(null);
+  const runningSpriteRef = useRef<HTMLImageElement | null>(null);
+  const mobileHouseRef = useRef<HTMLImageElement | null>(null);
+  const desktopHouseRef = useRef<HTMLImageElement | null>(null);
   const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
   const dogScaleRef = useRef(1);
   const targetPositionRef = useRef<LobbyPoint | null>(null);
   const routeControlRef = useRef<LobbyPoint>({ x: 0, y: 0 });
   const routeProgressRef = useRef(0);
   const routeLengthRef = useRef(0);
-  const routeBendRef = useRef(1);
+  const routeStartRef = useRef<LobbyPoint>({ x: 0, y: 0 });
+  const miniGameItemIdRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
-  const pawDistanceRef = useRef(0);
+  const idleTimerRef = useRef<number | null>(null);
+  const barkTimerRef = useRef<number | null>(null);
+  const barkAudioUnlockedRef = useRef(false);
+  const settleTimerRef = useRef<number | null>(null);
+  const lastPrintPositionRef = useRef<LobbyPoint | null>(null);
+  const nextRouteMarkerRef = useRef(0);
+  const routeMarkerDistancesRef = useRef<number[]>([]);
   const dogPositionInitializedRef = useRef(false);
 
   const room = game.room;
@@ -91,7 +139,6 @@ export default function App() {
   const isHost = Boolean(me?.isHost);
   const round = game.round;
   const inRoom = Boolean(room);
-  const isHomeOrLobby = !inRoom || room?.status === 'LOBBY';
   const allPlayersSettled =
     players.length > 0
     && players.every((player) => player.status === 'FOUND' || player.status === 'SKIPPED');
@@ -111,21 +158,31 @@ useEffect(() => {
     setCountdownNumber(3);
     const interval = window.setInterval(() => {
       setCountdownNumber((prev) => {
-        if (prev === null || prev <= 1) {
+        if (prev === null) return null;
+
+        // When reaching 0 ("GO!"), clear the interval but keep countdownNumber = 0
+        if (prev === 1) {
           window.clearInterval(interval);
-          return null;
+          
+          // Wait 1 extra second displaying "GO!" before hiding the overlay
+          window.setTimeout(() => {
+            setCountdownNumber(null);
+          }, 1000);
+
+          return 0; // Display "GO!"
         }
-        return prev - 1;
+
+        return prev - 1; // 3 -> 2 -> 1
       });
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [room?.status]);
+  }, [room?.status, round?.roundNumber]);
   useEffect(() => {
     const verdict = game.lastVerdict;
     if (!verdict) return;
 
-    if (verdict.playerId === game.playerId) {
+    if (verdict.playerId === game.playerId && !soundEffectsMuted) {
       if (verdict.verdict.verified) {
         correctAudio.current.currentTime = 0;
         correctAudio.current.play().catch((err) => console.warn("Correct audio blocked:", err));
@@ -134,7 +191,7 @@ useEffect(() => {
         wrongAudio.current.play().catch((err) => console.warn("Wrong audio blocked:", err));
       }
     }
-  }, [game.lastVerdict, game.playerId]);
+  }, [game.lastVerdict, game.playerId, soundEffectsMuted]);
   // --- WebRTC: start the camera as soon as we are in a room, so PeerJS has
   // time to mesh before round 1 begins.
   const remotePeers: RemotePeer[] = useMemo(
@@ -152,6 +209,46 @@ useEffect(() => {
     remotePeers,
     onLocalPeerId: game.registerPeerId,
   });
+
+  useEffect(() => {
+    const muted = soundEffectsMuted;
+    flashAudio.current.muted = muted;
+    barkAudio.current.muted = muted;
+    correctAudio.current.muted = muted;
+    wrongAudio.current.muted = muted;
+  }, [soundEffectsMuted]);
+
+  /**
+   * Settings -> "Voice chat" controls INCOMING audio only (whether you hear
+   * other players).
+   *
+   * It must not touch the local mic track: that is owned by useWebRTC's
+   * toggleMic, behind the mic button on your own name. This effect re-runs
+   * whenever remoteMedia changes, so including the local stream here would
+   * silently un-mute your mic every time somebody joined or left.
+   */
+  useEffect(() => {
+    Object.values(webrtc.remoteMedia).forEach((media) => {
+      media.stream.getAudioTracks().forEach((track) => {
+        track.enabled = !voiceChatMuted;
+      });
+    });
+  }, [voiceChatMuted, webrtc.remoteMedia]);
+
+  useEffect(() => {
+    if (soundEffectsMuted) {
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
+        barkTimerRef.current = null;
+      }
+      barkAudio.current.pause();
+      barkAudio.current.currentTime = 0;
+      return;
+    }
+    if (!inRoom && barkAudioUnlockedRef.current) {
+      scheduleRandomHomeBark();
+    }
+  }, [soundEffectsMuted, inRoom]);
 
   // --- Round stopwatch, driven off the server's authoritative start time.
   useEffect(() => {
@@ -205,10 +302,22 @@ useEffect(() => {
   }, [isTalking, refereeMessage]);
 
   useEffect(() => {
-    if (!isHomeOrLobby) {
+    if (inRoom) {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
+      }
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
+        barkTimerRef.current = null;
+      }
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
       }
       return;
     }
@@ -216,33 +325,24 @@ useEffect(() => {
     const lobby = lobbyRef.current;
     if (!lobby) return;
 
-    if (!dogPositionInitializedRef.current) {
-      dogPositionRef.current = {
-        x: Math.min(100, lobby.clientWidth / 2),
-        y: Math.max(100, lobby.clientHeight - 120),
-      };
-      dogPositionInitializedRef.current = true;
-    }
-    if (!targetPositionRef.current) {
-      const initialTarget = {
-        x: lobby.clientWidth * 0.82,
-        y: lobby.clientHeight * 0.38,
-      };
-      targetPositionRef.current = initialTarget;
-      setTargetPosition(initialTarget);
-      setShowTreasureChest(true);
-    }
-    const { x, y } = dogPositionRef.current;
-    if (dogRef.current) {
-      dogRef.current.style.transform =
-        `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(1)`;
-    }
-  }, [isHomeOrLobby]);
+    initializeDogNearHouse();
+    scheduleIdleReturn();
+
+  }, [inRoom]);
 
   useEffect(
     () => () => {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current);
+      }
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
+      }
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
       }
     },
     [],
@@ -300,8 +400,10 @@ useEffect(() => {
     setCaptureError(null);
     try {
       // Play flash audio effect right when capturing
-      flashAudio.current.currentTime = 0;
-      flashAudio.current.play().catch((err) => console.warn("Flash audio blocked:", err));
+      if (!soundEffectsMuted) {
+        flashAudio.current.currentTime = 0;
+        flashAudio.current.play().catch((err) => console.warn("Flash audio blocked:", err));
+      }
 
       const dataUrl = webrtc.captureJpeg();
       setFlashing(true);
@@ -336,45 +438,117 @@ useEffect(() => {
     game.skip();
   }
 
-  function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
+  function getHousePosition() {
+    const lobby = lobbyRef.current;
+    if (!lobby) return null;
+    const house = [mobileHouseRef.current, desktopHouseRef.current].find(
+      (candidate) =>
+        candidate
+        && candidate.naturalWidth > 0
+        && candidate.getBoundingClientRect().width > 0,
+    );
+    if (!house) return null;
+
+    const lobbyBounds = lobby.getBoundingClientRect();
+    const houseBounds = house.getBoundingClientRect();
+    return {
+      x: houseBounds.left - lobbyBounds.left + houseBounds.width / 2,
+      y: houseBounds.top - lobbyBounds.top + houseBounds.height / 2,
+      width: houseBounds.width,
+      height: houseBounds.height,
+    };
+  }
+
+  function playHomeBark() {
+    const audio = barkAudio.current;
+    if (soundEffectsMuted || !barkAudioUnlockedRef.current || !audio.paused) return;
+    audio.volume = 0.28;
+    audio.currentTime = 0;
+    void audio.play().catch((error) => console.warn('Bark audio blocked:', error));
+  }
+
+  function scheduleRandomHomeBark() {
+    if (barkTimerRef.current !== null) {
+      window.clearTimeout(barkTimerRef.current);
+    }
+    barkTimerRef.current = window.setTimeout(() => {
+      barkTimerRef.current = null;
+      if (inRoom) return;
+      playHomeBark();
+      scheduleRandomHomeBark();
+    }, 30_000 + Math.random() * 25_000);
+  }
+
+  function enableHomeBarks() {
+    barkAudioUnlockedRef.current = true;
+    if (!inRoom && barkTimerRef.current === null && !soundEffectsMuted) {
+      scheduleRandomHomeBark();
+    }
+  }
+
+  function initializeDogNearHouse() {
+    const lobby = lobbyRef.current;
+    const house = getHousePosition();
+    if (!lobby || !house || dogPositionInitializedRef.current) return;
+
+    dogPositionRef.current = {
+      x: Math.min(lobby.clientWidth - 24, house.x + house.width * 0.55),
+      y: Math.min(lobby.clientHeight - 24, house.y + house.height * 0.25),
+    };
+    dogPositionInitializedRef.current = true;
+    if (dogRef.current) {
+      dogRef.current.style.transform =
+        `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`;
+    }
+  }
+
+  function startDogMovement(target: LobbyPoint, returningToHouse = false) {
     const lobby = lobbyRef.current;
     if (!lobby) return;
+    initializeDogNearHouse();
 
-    const bounds = lobby.getBoundingClientRect();
-    const target = {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-    };
-
-    if (!dogPositionInitializedRef.current) {
-      dogPositionRef.current = {
-        x: Math.min(100, lobby.clientWidth / 2),
-        y: Math.max(100, lobby.clientHeight - 120),
-      };
-      dogPositionInitializedRef.current = true;
+    if (settleTimerRef.current !== null) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
     }
-
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
     }
 
+    setIsMoving(true);
     targetPositionRef.current = target;
     const start = dogPositionRef.current;
+    routeStartRef.current = start;
     const dx = target.x - start.x;
     const dy = target.y - start.y;
     const directDistance = Math.hypot(dx, dy);
-    const bendDistance = Math.min(90, Math.max(24, directDistance * 0.18));
-    const bendDirection = routeBendRef.current;
-    routeBendRef.current *= -1;
+    const nx = directDistance === 0 ? 0 : -dy / directDistance;
+    const ny = directDistance === 0 ? 0 : dx / directDistance;
+    const midX = (start.x + target.x) / 2;
+    const midY = (start.y + target.y) / 2;
+    const offsetMag = directDistance < 240
+      ? 0
+      : (Math.random() < 0.25 ? 0 : 20 + Math.random() * 60)
+        * (Math.random() > 0.5 ? 1 : -1);
     routeControlRef.current = {
-      x: (start.x + target.x) / 2 - (dy / (directDistance || 1)) * bendDistance * bendDirection,
-      y: (start.y + target.y) / 2 + (dx / (directDistance || 1)) * bendDistance * bendDirection,
+      x: midX + nx * offsetMag,
+      y: midY + ny * offsetMag,
     };
     routeProgressRef.current = 0;
+    const routeSamples: Array<{ point: LobbyPoint; distance: number; angle: number }> = [
+      {
+        point: start,
+        distance: 0,
+        angle: Math.atan2(
+          2 * (routeControlRef.current.y - start.y),
+          2 * (routeControlRef.current.x - start.x),
+        ),
+      },
+    ];
     let sampledPathLength = 0;
     let previousPoint = start;
-    for (let sample = 1; sample <= 24; sample += 1) {
-      const t = sample / 24;
+    for (let sample = 1; sample <= 48; sample += 1) {
+      const t = sample / 48;
       const inverseT = 1 - t;
       const point = {
         x: inverseT * inverseT * start.x
@@ -385,11 +559,62 @@ useEffect(() => {
           + t * t * target.y,
       };
       sampledPathLength += Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+      routeSamples.push({
+        point,
+        distance: sampledPathLength,
+        angle: Math.atan2(
+          2 * inverseT * (routeControlRef.current.y - start.y)
+            + 2 * t * (target.y - routeControlRef.current.y),
+          2 * inverseT * (routeControlRef.current.x - start.x)
+            + 2 * t * (target.x - routeControlRef.current.x),
+        ),
+      });
       previousPoint = point;
     }
     routeLengthRef.current = sampledPathLength;
-    pawDistanceRef.current = 0;
-    setTargetPosition(target);
+    const markerGap = 28;
+    const markers: RouteMarker[] = [];
+    for (
+      let markerDistance = markerGap;
+      markerDistance < sampledPathLength;
+      markerDistance += markerGap
+    ) {
+      const sampleIndex = routeSamples.findIndex((sample) => sample.distance >= markerDistance);
+      const after = routeSamples[Math.max(sampleIndex, 0)];
+      const before = routeSamples[Math.max(sampleIndex - 1, 0)];
+      const segmentDistance = after.distance - before.distance;
+      const segmentProgress = segmentDistance > 0
+        ? (markerDistance - before.distance) / segmentDistance
+        : 0;
+      markers.push({
+        id: miniGameItemIdRef.current++,
+        x: before.point.x + (after.point.x - before.point.x) * segmentProgress,
+        y: before.point.y + (after.point.y - before.point.y) * segmentProgress,
+        angle: (before.angle + (after.angle - before.angle) * segmentProgress) * 180 / Math.PI,
+        distanceAlong: markerDistance,
+      });
+    }
+    routeMarkerDistancesRef.current = markers.map((marker) => marker.distanceAlong);
+    nextRouteMarkerRef.current = 0;
+    setRouteMarkers(markers);
+    const initialTangent = Math.atan2(
+      routeControlRef.current.y - start.y,
+      routeControlRef.current.x - start.x,
+    );
+    lastPrintPositionRef.current = start;
+    setPawPrints((prints) => [
+      ...prints,
+      {
+        id: miniGameItemIdRef.current++,
+        x: start.x,
+        y: start.y,
+        angle: (initialTangent * 180) / Math.PI,
+      },
+    ].slice(-maxPawPrints));
+    setActiveX(returningToHouse ? null : target);
+    const speed = window.matchMedia('(min-width: 768px)').matches
+      ? desktopDogSpeed
+      : mobileDogSpeed;
 
     const animateDog = () => {
       const current = dogPositionRef.current;
@@ -402,50 +627,114 @@ useEffect(() => {
 
       if (routeLengthRef.current < 5 || routeProgressRef.current >= 1) {
         dogPositionRef.current = destination;
+        dogScaleRef.current = destination.x < current.x ? -1 : 1;
         dog.style.transform =
-          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(1)`;
+          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dogScaleRef.current})`;
+        if (runningSpriteRef.current) runningSpriteRef.current.style.transform = '';
         animationFrameRef.current = null;
-        setShowTreasureChest(true);
+        targetPositionRef.current = null;
+        setActiveX(null);
+        if (!returningToHouse) {
+          playHomeBark();
+          setPastChests((chests) => [
+            ...chests,
+            { ...destination, id: miniGameItemIdRef.current++ },
+          ]);
+          const arrival = destination;
+          settleTimerRef.current = window.setTimeout(() => {
+            settleTimerRef.current = null;
+            const currentLobby = lobbyRef.current;
+            if (!currentLobby) return;
+            const sitOffset = 84;
+            const margin = 52;
+            const candidates = [
+              { x: arrival.x + sitOffset, y: arrival.y },
+              { x: arrival.x - sitOffset, y: arrival.y },
+              { x: arrival.x, y: arrival.y - sitOffset },
+              { x: arrival.x, y: arrival.y + sitOffset },
+            ].map((point) => ({
+              x: Math.max(margin, Math.min(currentLobby.clientWidth - margin, point.x)),
+              y: Math.max(margin, Math.min(currentLobby.clientHeight - margin, point.y)),
+            }));
+            const sitPosition = candidates.find(
+              (point) => Math.hypot(point.x - arrival.x, point.y - arrival.y) >= sitOffset,
+            ) ?? candidates.reduce((farthest, point) =>
+              Math.hypot(point.x - arrival.x, point.y - arrival.y)
+                > Math.hypot(farthest.x - arrival.x, farthest.y - arrival.y)
+                ? point
+                : farthest,
+            );
+            startDogMovement(sitPosition, true);
+          }, 1000);
+        } else {
+          setIsMoving(false);
+        }
         return;
       }
 
       const oldProgress = routeProgressRef.current;
       routeProgressRef.current = Math.min(
         1,
-        oldProgress + dogSpeed / routeLengthRef.current,
+        oldProgress + speed / routeLengthRef.current,
       );
       const t = routeProgressRef.current;
+      const distanceTravelled = t * routeLengthRef.current;
+      const markersBeforeMovement = nextRouteMarkerRef.current;
+      while (
+        nextRouteMarkerRef.current < routeMarkerDistancesRef.current.length
+        && routeMarkerDistancesRef.current[nextRouteMarkerRef.current] <= distanceTravelled
+      ) {
+        nextRouteMarkerRef.current += 1;
+      }
+      if (nextRouteMarkerRef.current > markersBeforeMovement) {
+        setRouteMarkers((markers) => markers.map((marker) =>
+          marker.distanceAlong <= distanceTravelled ? { ...marker, passed: true } : marker,
+        ));
+      }
       const inverseT = 1 - t;
       const control = routeControlRef.current;
+      const startPoint = routeStartRef.current;
       const next = {
-        x: inverseT * inverseT * start.x
+        x: inverseT * inverseT * startPoint.x
           + 2 * inverseT * t * control.x
           + t * t * destination.x,
-        y: inverseT * inverseT * start.y
+        y: inverseT * inverseT * startPoint.y
           + 2 * inverseT * t * control.y
           + t * t * destination.y,
       };
-      const dx = next.x - current.x;
-      const dy = next.y - current.y;
-      const step = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx);
+      const tangentX = 2 * inverseT * (control.x - startPoint.x)
+        + 2 * t * (destination.x - control.x);
+      const tangentY = 2 * inverseT * (control.y - startPoint.y)
+        + 2 * t * (destination.y - control.y);
+      const angle = Math.atan2(tangentY, tangentX);
       dogPositionRef.current = next;
-      if (Math.abs(dx) > 0.01) dogScaleRef.current = dx < 0 ? -1 : 1;
+      dogScaleRef.current = destination.x < current.x ? -1 : 1;
       dog.style.transform =
         `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
+      const gaitPhase = routeProgressRef.current * routeLengthRef.current * 0.14;
+      const sideJiggle = Math.sin(gaitPhase) * 0.8;
+      const verticalBounce = -Math.abs(Math.sin(gaitPhase)) * 1.8;
+      if (runningSpriteRef.current) {
+        runningSpriteRef.current.style.transform =
+          `translate(${sideJiggle}px, ${verticalBounce}px)`;
+      }
 
-      pawDistanceRef.current += step;
-      while (pawDistanceRef.current >= pawPrintSpacing) {
-        pawDistanceRef.current -= pawPrintSpacing;
+      const lastPrintPosition = lastPrintPositionRef.current;
+      if (
+        lastPrintPosition
+        && Math.hypot(next.x - lastPrintPosition.x, next.y - lastPrintPosition.y)
+          >= pawPrintSpacing
+      ) {
         setPawPrints((prints) => [
           ...prints,
           {
-            id: performance.now(),
+            id: miniGameItemIdRef.current++,
             x: next.x,
             y: next.y,
             angle: (angle * 180) / Math.PI,
           },
         ].slice(-maxPawPrints));
+        lastPrintPositionRef.current = next;
       }
 
       animationFrameRef.current = window.requestAnimationFrame(animateDog);
@@ -454,16 +743,95 @@ useEffect(() => {
     animationFrameRef.current = window.requestAnimationFrame(animateDog);
   }
 
+  function scheduleIdleReturn() {
+    if (idleTimerRef.current !== null) {
+      window.clearTimeout(idleTimerRef.current);
+    }
+    idleTimerRef.current = window.setTimeout(() => {
+      idleTimerRef.current = null;
+      const house = getHousePosition();
+      if (!house) return;
+      startDogMovement(
+        {
+          x: house.x + house.width * 0.55 + (Math.random() * 40 - 20),
+          y: house.y + house.height * 0.25 + (Math.random() * 30 - 15),
+        },
+        true,
+      );
+    }, 10_000);
+  }
+
+  function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const lobby = lobbyRef.current;
+    if (!lobby) return;
+    if (
+      event.target instanceof Element
+      && event.target.closest('button, input, textarea, select, label, form, a, [data-no-dog-move]')
+    ) {
+      return;
+    }
+
+    const bounds = lobby.getBoundingClientRect();
+    const target = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+
+    scheduleIdleReturn();
+    startDogMovement(target);
+  }
+
   function renderInkMiniGame() {
     return (
       <>
+        {routeMarkers.map((marker) => (
+          <img
+            key={marker.id}
+            src={routeMarker}
+            alt=""
+            aria-hidden="true"
+            onTransitionEnd={(event) => {
+              if (marker.passed && event.propertyName === 'opacity') {
+                setRouteMarkers((markers) => markers.filter((item) => item.id !== marker.id));
+              }
+            }}
+            className={`pointer-events-none absolute z-0 h-4 w-4 select-none object-contain mix-blend-multiply transition-opacity duration-1500 ${marker.passed ? 'opacity-0' : 'opacity-20'}`}
+            style={{
+              left: marker.x,
+              top: marker.y,
+              transform: `translate(-50%, -50%) rotate(${marker.angle + 90}deg)`,
+            }}
+          />
+        ))}
+
+        {pastChests.map((chest) => (
+          <img
+            key={chest.id}
+            src={treasureChest}
+            alt=""
+            aria-hidden="true"
+            onAnimationEnd={() =>
+              setPastChests((chests) => chests.filter((item) => item.id !== chest.id))
+            }
+            className="animate-fade-out-print pointer-events-none absolute z-10 h-20 w-20 select-none object-contain mix-blend-darken"
+            style={{
+              left: chest.x,
+              top: chest.y,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
+        ))}
+
         {pawPrints.map((paw) => (
           <img
             key={paw.id}
             src={inkPaw}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain"
+            onAnimationEnd={() =>
+              setPawPrints((prints) => prints.filter((print) => print.id !== paw.id))
+            }
+            className="animate-fade-out-print pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-darken"
             style={{
               left: paw.x,
               top: paw.y,
@@ -472,45 +840,41 @@ useEffect(() => {
           />
         ))}
 
-        {targetPosition && (
-          <>
-            <img
-              src={xMarksTheSpot}
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain md:h-28 md:w-28"
-              style={{
-                left: targetPosition.x,
-                top: targetPosition.y,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
-            {showTreasureChest && (
-              <img
-                src={treasureChest}
-                alt=""
-                aria-hidden="true"
-                className="pointer-events-none absolute z-10 h-16 w-16 select-none object-contain md:h-20 md:w-20"
-                style={{
-                  left: targetPosition.x,
-                  top: targetPosition.y,
-                  transform: 'translate(-50%, -50%)',
-                }}
-              />
-            )}
-          </>
+        {activeX && (
+          <img
+            src={xMarksTheSpot}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-darken md:h-28 md:w-28"
+            style={{
+              left: activeX.x,
+              top: activeX.y,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
         )}
 
-        <img
+        <div
           ref={dogRef}
-          src={inkRunning}
-          alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain"
+          className="pointer-events-none absolute left-0 top-0 z-10 h-48 w-48"
           style={{
             transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
-        />
+        >
+          <img
+            ref={runningSpriteRef}
+            src={inkRunning}
+            alt=""
+            className={`absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-200 ${isMoving ? 'opacity-100' : 'opacity-0'}`}
+            style={{ willChange: 'transform' }}
+          />
+          <img
+            src={inkSitting}
+            alt=""
+            className={`absolute left-1/2 top-1/2 h-[104px] w-[104px] -translate-x-1/2 -translate-y-1/2 select-none object-contain mix-blend-multiply transition-opacity duration-200 ${isMoving ? 'opacity-0' : 'opacity-100'}`}
+          />
+        </div>
       </>
     );
   }
@@ -525,21 +889,47 @@ useEffect(() => {
       <div
         ref={lobbyRef}
         onClick={handleLobbyClick}
-        className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
+        onPointerDown={enableHomeBarks}
+        className="relative h-dvh min-h-[100dvh] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        {renderInkMiniGame()}
-        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-          <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
-            <div className="flex w-full max-w-sm flex-col items-center gap-5">
-              <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
-              <label className="w-full text-center text-xl">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
+        >
+          <div
+            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
+          />
+          <img
+            ref={desktopHouseRef}
+            src={inkHouse}
+            alt=""
+            aria-hidden="true"
+            onLoad={initializeDogNearHouse}
+            className="absolute bottom-6 left-6 z-10 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
+          />
+          <img
+            ref={mobileHouseRef}
+            src={inkHouse}
+            alt=""
+            aria-hidden="true"
+            onLoad={initializeDogNearHouse}
+            className="absolute bottom-4 left-2 z-10 h-auto w-72 select-none object-contain mix-blend-multiply md:hidden"
+          />
+          {renderInkMiniGame()}
+        </div>
+        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 text-center sm:gap-8 sm:p-6">
+          <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
+            <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
+              <img src={spotleLogo} alt="Spotle" className="relative top-2 w-full max-w-md" />
+              <label className="w-full text-center text-lg sm:text-xl">
                 Your Name
                 <input
                   type="text"
                   value={playerName}
                   onChange={(event) => setPlayerName(event.target.value)}
                   placeholder="Enter your name"
-                  className="mt-3 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-5 text-center text-xl text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
+                  className="mt-2 block w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-4 text-center text-xl leading-7 text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
                 />
               </label>
               <button
@@ -569,6 +959,123 @@ useEffect(() => {
             </div>
           </section>
         </main>
+
+        <button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Open settings and credits"
+          className="fixed left-4 top-4 z-[60] flex h-14 w-14 items-center justify-center rounded-full border-4 border-spotle-navy bg-spotle-coral text-spotle-navy shadow-lg transition-transform active:scale-95 md:bottom-6 md:left-auto md:right-6 md:top-auto md:h-16 md:w-16"
+        >
+          <Settings aria-hidden="true" className="h-7 w-7 md:h-8 md:w-8" />
+        </button>
+
+        {isSettingsOpen && (
+          <div
+            data-no-dog-move
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-spotle-navy/70 p-4 backdrop-blur-sm"
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="settings-title"
+              className="relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-5 text-spotle-navy shadow-2xl sm:p-8"
+            >
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                aria-label="Close settings"
+                className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border-2 border-spotle-navy bg-spotle-coral transition-transform active:scale-95"
+              >
+                <X aria-hidden="true" className="h-6 w-6" />
+              </button>
+              <h2 id="settings-title" className="pr-12 text-2xl sm:text-3xl">Settings & Credits</h2>
+
+              <div className="mt-6 space-y-3">
+                <button
+                  type="button"
+                  aria-pressed={soundEffectsMuted}
+                  onClick={() => setSoundEffectsMuted((muted) => !muted)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl border-2 border-spotle-navy bg-white/60 p-4 text-left transition-colors hover:bg-white"
+                >
+                  <span className="flex items-center gap-3 text-base sm:text-lg">
+                    {soundEffectsMuted
+                      ? <VolumeX aria-hidden="true" className="h-6 w-6 shrink-0" />
+                      : <Volume2 aria-hidden="true" className="h-6 w-6 shrink-0" />}
+                    Sound effects
+                  </span>
+                  <span className="text-sm">{soundEffectsMuted ? 'Muted' : 'On'}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={voiceChatMuted}
+                  onClick={() => setVoiceChatMuted((muted) => !muted)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl border-2 border-spotle-navy bg-white/60 p-4 text-left transition-colors hover:bg-white"
+                >
+                  <span className="flex items-center gap-3 text-base sm:text-lg">
+                    {voiceChatMuted
+                      ? <MicOff aria-hidden="true" className="h-6 w-6 shrink-0" />
+                      : <Mic aria-hidden="true" className="h-6 w-6 shrink-0" />}
+                    Voice chat
+                  </span>
+                  <span className="text-sm">{voiceChatMuted ? 'Muted' : 'On'}</span>
+                </button>
+              </div>
+
+              <div className="mt-7 border-t-2 border-spotle-navy/15 pt-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl">Made at SwampHacks XII</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-spotle-navy/75 sm:text-base">
+                      Built by four UF sophomores with Gator spirit.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsHornsDownOpen(true)}
+                    aria-label="Show the Gator horns-down photo"
+                    className="shrink-0 rounded-xl p-1 transition-transform active:scale-95"
+                  >
+                    <img src={gatorLogo} alt="Florida Gators logo — click for a surprise" className="h-16 w-16 object-contain sm:h-20 sm:w-20" />
+                  </button>
+                </div>
+                <ul className="mt-5 grid grid-cols-2 gap-2 text-sm sm:text-base">
+                  {['Alexander Schunko', 'Angel Reyes', 'Jayden Valera', 'Mason Levy'].map((name) => (
+                    <li key={name} className="rounded-xl bg-spotle-navy/5 px-3 py-2">{name}</li>
+                  ))}
+                </ul>
+                <p className="mt-5 text-center text-lg text-spotle-coral">Go Gators!</p>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {isHornsDownOpen && (
+          <div
+            data-no-dog-move
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-spotle-navy/85 p-4 backdrop-blur-sm"
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Horns-down Gator surprise"
+              className="relative w-full max-w-xl rounded-2xl border-4 border-spotle-cream bg-spotle-cream p-3 shadow-2xl"
+            >
+              <button
+                type="button"
+                onClick={() => setIsHornsDownOpen(false)}
+                aria-label="Close photo"
+                className="absolute -right-3 -top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 border-spotle-navy bg-spotle-coral text-spotle-navy"
+              >
+                <X aria-hidden="true" className="h-6 w-6" />
+              </button>
+              <img
+                src={hornsDownImage}
+                alt="A playful horns-down photo from the SwampHacks team"
+                className="max-h-[80dvh] w-full rounded-xl object-contain"
+              />
+            </section>
+          </div>
+        )}
 
         {isJoinModalOpen && (
           <div data-lobby-ui className="fixed inset-0 z-50 flex items-center justify-center bg-spotle-navy/70 p-6">
@@ -620,24 +1127,32 @@ useEffect(() => {
   if (room!.status === 'LOBBY') {
     return (
       <div
-        ref={lobbyRef}
-        onClick={handleLobbyClick}
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        {renderInkMiniGame()}
-
-        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-          <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
-            <p className="rounded-full border-4 border-spotle-cream bg-spotle-navy px-8 py-4 text-2xl text-spotle-coral">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+        >
+          <div
+            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
+          />
+        </div>
+        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:h-auto sm:min-h-screen sm:overflow-visible sm:p-6">
+          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:h-auto sm:gap-5 sm:py-4">
+            <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
               PIN: {room!.roomCode}
             </p>
-            <ul className="grid w-full shrink-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-3">
+            {/* The grid is the only flexible row: it gives up height first so
+                the PIN and the buttons always stay on screen. Capped at its own
+                width so tiles stay square on roomy screens. */}
+            <ul className="grid min-h-0 w-full flex-1 max-h-[min(92vw,28rem)] grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:max-h-none sm:flex-none sm:gap-3">
               {Array.from({ length: maxPlayers }, (_, index) => {
                 const player = players[index];
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="aspect-square min-h-0 min-w-0 w-full overflow-hidden break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy text-center text-lg text-spotle-coral"
+                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:h-auto sm:w-full sm:max-w-none sm:rounded-[2rem] sm:text-lg"
                   >
                     {player ? (
                       <LobbyCamTile
@@ -651,6 +1166,13 @@ useEffect(() => {
                         }
                         label={`${player.name}${player.isHost ? ' (Host)' : ''}`}
                         mirrored={player.id === game.playerId && webrtc.facingMode === 'user'}
+                        isLocal={player.id === game.playerId}
+                        micEnabled={webrtc.micEnabled}
+                        onToggleMic={
+                          player.id === game.playerId && webrtc.micAvailable
+                            ? webrtc.toggleMic
+                            : undefined
+                        }
                         placeholder={
                           player.id === game.playerId ? 'Starting camera…' : 'Connecting…'
                         }
@@ -666,9 +1188,9 @@ useEffect(() => {
             </ul>
 
             {webrtc.error && (
-              <p className="text-base text-red-700">{webrtc.error}</p>
+              <p className="shrink-0 text-sm text-red-700 sm:text-base">{webrtc.error}</p>
             )}
-            <p className="text-base text-spotle-navy/70">
+            <p className="shrink-0 text-sm text-spotle-navy/70 sm:text-base">
               {webrtc.cameraReady ? 'Camera ready' : 'Starting camera…'}
             </p>
 
@@ -676,20 +1198,105 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={game.startGame}
-                disabled={players.length < 1}
-                className={`${arcadeButtonClass} relative z-50`}
+                disabled={players.length < (room!.settings.mode === 'ME' ? 2 : 1)}
+                className={`${lobbyButtonClass} relative z-50`}
               >
                 START GAME
               </button>
             ) : (
-              <p className="text-xl">Waiting for the host to start…</p>
+              <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
-            <button type="button" onClick={leaveGame} className={`${arcadeButtonClass} relative z-50`}>
+            <div className="grid w-full grid-cols-2 gap-2">
+              {(['OBJECTS', 'ME'] as GameMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => game.setMode(mode)}
+                  disabled={!isHost || room!.settings.mode === mode}
+                  aria-pressed={room!.settings.mode === mode}
+                  className={`${lobbyButtonClass} ${room!.settings.mode === mode ? 'bg-spotle-coral text-spotle-navy' : ''} relative z-50`}
+                >
+                  {mode === 'OBJECTS' ? 'OBJECT HUNT' : 'ME HUNT'}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              disabled={room!.settings.mode === 'ME'}
+              className={`${lobbyButtonClass} relative z-50`}
+            >
+              {room!.settings.mode === 'ME' ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
+            </button>
+            {room!.settings.mode === 'ME' && (
+              <p className="shrink-0 text-sm text-spotle-navy/70">
+                Players will hunt each other! Selfies are required before the round starts.
+              </p>
+            )}
+            <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
             </button>
+
+            {isThemeModalOpen && (
+              <ThemePicker
+                selected={room!.settings.theme}
+                onSelect={game.setTheme}
+                onClose={() => setIsThemeModalOpen(false)}
+              />
+            )}
           </div>
         </main>
       </div>
+    );
+  }
+
+  if (room!.status === 'SELFIE_REGISTRATION') {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-5 bg-spotle-cream p-6 text-center font-pixel text-spotle-navy">
+        <h1 className="text-3xl">Register Your Face</h1>
+        <p className="max-w-lg text-base">Take a live selfie so the referee can verify player hunts. Your image stays private to the game server.</p>
+        <div className="relative aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
+          {webrtc.localStream ? (
+            <video
+              ref={webrtc.localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Selfie camera preview"
+              className={`h-full w-full object-cover ${webrtc.facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-3 text-center text-spotle-coral">
+              Starting camera…
+            </div>
+          )}
+          <p className="absolute inset-x-0 bottom-0 truncate bg-spotle-navy/80 px-2 py-1 text-center text-sm text-spotle-coral">
+            {me?.name ?? 'You'}
+          </p>
+        </div>
+        {webrtc.error && <p className="text-sm text-red-700">{webrtc.error}</p>}
+        {game.error && <p className="text-sm text-red-700">{game.error}</p>}
+        {me?.selfieReady ? (
+          <p className="text-lg">Selfie registered. Waiting for the other players…</p>
+        ) : (
+          <button
+            type="button"
+            disabled={!webrtc.cameraReady}
+            onClick={() => {
+              try {
+                game.submitSelfie(webrtc.captureJpeg({ maxWidth: 400, quality: 0.7 }));
+            } catch (error) {
+                setCaptureError(error instanceof Error ? error.message : 'Could not capture a selfie.');
+              }
+            }}
+            className={arcadeButtonClass}
+          >
+            TAKE REFERENCE SELFIE
+          </button>
+        )}
+        {captureError && <p className="text-sm text-red-700">{captureError}</p>}
+        <p className="text-sm">{players.filter((player) => player.selfieReady).length} / {players.length} ready</p>
+      </main>
     );
   }
 
@@ -723,6 +1330,7 @@ useEffect(() => {
       totalRounds={room!.settings.totalRounds}
       elapsedSeconds={elapsedSeconds}
       isCountdown={room!.status === 'COUNTDOWN'}
+      countdownNumber={countdownNumber}
       canPress={me?.status === 'SEARCHING'}
       canSkip={
         room!.status === 'HUNTING'
@@ -745,6 +1353,8 @@ useEffect(() => {
       facingMode={webrtc.facingMode}
       isFlipping={webrtc.isFlipping}
       onFlipCamera={webrtc.flipCamera}
+      micEnabled={webrtc.micEnabled}
+      onToggleMic={webrtc.micAvailable ? webrtc.toggleMic : undefined}
       onFoundIt={handleFoundIt}
       onGiveUp={handleGiveUp}
     />
@@ -756,6 +1366,8 @@ useEffect(() => {
 function PlayerTile({
   player,
   isLocal,
+  micEnabled,
+  onToggleMic,
   localVideoRef,
   localStream,
   stream,
@@ -771,6 +1383,8 @@ function PlayerTile({
 }: {
   player: Player;
   isLocal: boolean;
+  micEnabled?: boolean;
+  onToggleMic?: () => void;
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
   localStream: MediaStream | null;
   stream: MediaStream | undefined;
@@ -861,11 +1475,31 @@ function PlayerTile({
         </div>
       )}
 
-      <p className={`absolute top-2 z-20 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
-        nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
-      }`}>
-        {isLocal ? 'You' : player.name}
-      </p>
+      {isLocal && onToggleMic ? (
+        <button
+          type="button"
+          onClick={onToggleMic}
+          aria-pressed={!micEnabled}
+          aria-label={micEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+          title={micEnabled ? 'Click to mute your mic' : 'Click to unmute your mic'}
+          className={`absolute top-2 z-20 flex max-w-[calc(100%-1rem)] items-center gap-2 truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy transition-transform active:scale-95 md:text-2xl ${
+            nameOnRight ? 'right-2' : 'left-2'
+          }`}
+        >
+          {micEnabled ? (
+            <Mic aria-hidden="true" className="h-5 w-5 shrink-0 md:h-6 md:w-6" />
+          ) : (
+            <MicOff aria-hidden="true" className="h-5 w-5 shrink-0 text-red-700 md:h-6 md:w-6" />
+          )}
+          <span className="truncate">You</span>
+        </button>
+      ) : (
+        <p className={`absolute top-2 z-20 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
+          nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
+        }`}>
+          {isLocal ? 'You' : player.name}
+        </p>
+      )}
 
       {showCrown && (
         <Crown
@@ -923,15 +1557,25 @@ function PlayerTile({
 
 function TargetPanel({ round }: { round: RoundData | null }) {
   if (!round) return null;
+  const isPlayerHunt = round.mode === 'ME';
+  const targetName = round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '');
+  const label = isPlayerHunt ? `HUNT: ${targetName}` : round.targetObject;
+  const image = round.targetPlayerSelfie;
   return (
-    <figure className="flex w-24 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-xs text-spotle-coral md:w-56 md:text-lg">
-      <img
-        src={round.targetIconUrl}
-        alt={round.targetObject}
-        className="aspect-square w-full bg-spotle-cream object-contain p-2"
-      />
+    <figure className={`flex w-24 max-w-full flex-col items-center text-center text-xs md:w-56 md:text-lg ${isPlayerHunt ? 'gap-2' : 'overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-spotle-coral'}`}>
+      {image ? (
+        <img
+          src={image}
+          alt={round.targetObject}
+          className={`aspect-square w-full object-cover ${isPlayerHunt ? 'rounded-full border-4 border-red-600 bg-spotle-cream p-1 shadow-[0_0_18px_rgba(220,38,38,0.8)] animate-pulse' : 'bg-spotle-cream p-2'}`}
+        />
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center bg-spotle-cream text-5xl text-spotle-navy">
+          {round.emoji ?? '🎯'}
+        </div>
+      )}
       <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
-        {round.targetObject}
+        {label}
         {round.imageAttribution && (
           <span className="mt-1 block text-[9px] leading-tight md:text-xs">
             Photo:{" "}
@@ -956,6 +1600,7 @@ function PlayingScreen({
   totalRounds,
   elapsedSeconds,
   isCountdown,
+  countdownNumber,
   canPress,
   canSkip,
   flashing,
@@ -971,6 +1616,8 @@ function PlayingScreen({
   facingMode,
   isFlipping,
   onFlipCamera,
+  micEnabled,
+  onToggleMic,
   onFoundIt,
   onGiveUp,
 }: {
@@ -981,6 +1628,7 @@ function PlayingScreen({
   totalRounds: number;
   elapsedSeconds: number;
   isCountdown: boolean;
+  countdownNumber: number | null;
   canPress: boolean;
   canSkip: boolean;
   flashing: boolean;
@@ -996,10 +1644,13 @@ function PlayingScreen({
   facingMode: 'user' | 'environment';
   isFlipping: boolean;
   onFlipCamera: () => void;
+  micEnabled?: boolean;
+  onToggleMic?: () => void;
   onFoundIt: () => void;
   onGiveUp: () => void;
 }) {
   const hasTargetCell = players.length === 3;
+  const targetImage = round?.targetPlayerSelfie;
 
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
@@ -1015,13 +1666,17 @@ function PlayingScreen({
               >
                 {round && (
                   <>
-                    <img
-                      src={round.targetIconUrl}
-                      alt={round.targetObject}
-                      className="max-h-[72%] w-3/4 flex-1 object-contain"
-                    />
-                    <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
-                      {round.targetObject}
+                    {targetImage ? (
+                      <img src={targetImage} alt={round.targetObject} className="max-h-[72%] w-3/4 flex-1 object-contain" />
+                    ) : (
+                      <div className="flex max-h-[72%] flex-1 items-center justify-center text-6xl text-spotle-navy">
+                        {round.emoji ?? '🎯'}
+                      </div>
+                    )}
+                    <p className={`max-w-full rounded-full px-5 py-3 ${round.mode === 'ME' ? 'bg-red-700 text-white' : 'bg-spotle-navy text-spotle-coral'}`}>
+                      {round.mode === 'ME'
+                        ? `HUNT: ${round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')}`
+                        : round.targetObject}
                     </p>
                     {round.imageAttribution && (
                       <p className="max-w-full text-xs leading-tight">
@@ -1049,6 +1704,8 @@ function PlayingScreen({
               key={player.id}
               player={player}
               isLocal={isLocal}
+              micEnabled={micEnabled}
+              onToggleMic={isLocal ? onToggleMic : undefined}
               localVideoRef={localVideoRef}
               localStream={localStream}
               stream={
@@ -1154,8 +1811,13 @@ function PlayingScreen({
       </nav>
 
       {isCountdown && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-spotle-navy/85">
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-spotle-navy/85 gap-4">
           <p className="text-center text-4xl text-spotle-coral md:text-6xl">GET READY!</p>
+          {countdownNumber !== null && (
+            <p className="text-center text-8xl text-spotle-cream animate-pulse font-bold">
+              {countdownNumber > 0 ? countdownNumber : 'GO!'}
+            </p>
+          )}
         </div>
       )}
     </main>
