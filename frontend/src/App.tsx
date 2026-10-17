@@ -17,9 +17,14 @@ import {
   KeyRound,
   Laptop,
   Milk,
+  Mic,
+  MicOff,
+  Settings,
   ShieldAlert,
   Sparkles,
   SwitchCamera,
+  Volume2,
+  VolumeX,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -29,6 +34,8 @@ import dogMouthOpen from './assets/Spot_mouth_open.png';
 import inkRunning from './assets/Ink_running.gif';
 import inkSitting from './assets/Ink_sit.png';
 import inkHouse from './assets/Ink_house.png';
+import gatorLogo from './assets/Gator.webp';
+import hornsDownImage from './assets/Screenshot 2026-10-17 at 6.35.02 PM.png';
 import inkPaw from './assets/Ink_paw.png';
 import routeMarker from './assets/route.png';
 import xMarksTheSpot from './assets/X_marks_the_spot.png';
@@ -42,6 +49,7 @@ import { getTheme } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
+import barkAudioSrc from './assets/sounds/yodguard-friendly-small-dog-bark-2-535476.mp3';
 
 const maxPlayers = 4;
 const mobileDogSpeed = 2;
@@ -52,7 +60,12 @@ const maxPawPrints = 100;
 type LobbyPoint = { x: number; y: number };
 type PawPrint = LobbyPoint & { id: number; angle: number };
 type PastChest = LobbyPoint & { id: number };
-type RouteMarker = LobbyPoint & { id: number; angle: number; distanceAlong: number };
+type RouteMarker = LobbyPoint & {
+  id: number;
+  angle: number;
+  distanceAlong: number;
+  passed?: boolean;
+};
 
 const targetIcons: Record<string, LucideIcon> = {
   Award,
@@ -93,6 +106,10 @@ export default function App() {
   const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
   const [joinPin, setJoinPin] = useState('');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHornsDownOpen, setIsHornsDownOpen] = useState(false);
+  const [soundEffectsMuted, setSoundEffectsMuted] = useState(false);
+  const [voiceChatMuted, setVoiceChatMuted] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,6 +129,7 @@ export default function App() {
   const [isMoving, setIsMoving] = useState(false);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
+  const barkAudio = useRef(new Audio(barkAudioSrc));
   const correctAudio = useRef(new Audio(correctAudioSrc));
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
   const lobbyRef = useRef<HTMLDivElement | null>(null);
@@ -129,6 +147,8 @@ export default function App() {
   const miniGameItemIdRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const idleTimerRef = useRef<number | null>(null);
+  const barkTimerRef = useRef<number | null>(null);
+  const barkAudioUnlockedRef = useRef(false);
   const settleTimerRef = useRef<number | null>(null);
   const lastPrintPositionRef = useRef<LobbyPoint | null>(null);
   const nextRouteMarkerRef = useRef(0);
@@ -184,7 +204,7 @@ useEffect(() => {
     const verdict = game.lastVerdict;
     if (!verdict) return;
 
-    if (verdict.playerId === game.playerId) {
+    if (verdict.playerId === game.playerId && !soundEffectsMuted) {
       if (verdict.verdict.verified) {
         correctAudio.current.currentTime = 0;
         correctAudio.current.play().catch((err) => console.warn("Correct audio blocked:", err));
@@ -193,7 +213,7 @@ useEffect(() => {
         wrongAudio.current.play().catch((err) => console.warn("Wrong audio blocked:", err));
       }
     }
-  }, [game.lastVerdict, game.playerId]);
+  }, [game.lastVerdict, game.playerId, soundEffectsMuted]);
   // --- WebRTC: start the camera as soon as we are in a room, so PeerJS has
   // time to mesh before round 1 begins.
   const remotePeers: RemotePeer[] = useMemo(
@@ -211,6 +231,38 @@ useEffect(() => {
     remotePeers,
     onLocalPeerId: game.registerPeerId,
   });
+
+  useEffect(() => {
+    const muted = soundEffectsMuted;
+    flashAudio.current.muted = muted;
+    barkAudio.current.muted = muted;
+    correctAudio.current.muted = muted;
+    wrongAudio.current.muted = muted;
+  }, [soundEffectsMuted]);
+
+  useEffect(() => {
+    const streams = [webrtc.localStream, ...Object.values(webrtc.remoteMedia).map((media) => media.stream)];
+    streams.forEach((stream) => {
+      stream?.getAudioTracks().forEach((track) => {
+        track.enabled = !voiceChatMuted;
+      });
+    });
+  }, [voiceChatMuted, webrtc.localStream, webrtc.remoteMedia]);
+
+  useEffect(() => {
+    if (soundEffectsMuted) {
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
+        barkTimerRef.current = null;
+      }
+      barkAudio.current.pause();
+      barkAudio.current.currentTime = 0;
+      return;
+    }
+    if (!inRoom && barkAudioUnlockedRef.current) {
+      scheduleRandomHomeBark();
+    }
+  }, [soundEffectsMuted, inRoom]);
 
   // --- Round stopwatch, driven off the server's authoritative start time.
   useEffect(() => {
@@ -273,6 +325,10 @@ useEffect(() => {
         window.clearTimeout(idleTimerRef.current);
         idleTimerRef.current = null;
       }
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
+        barkTimerRef.current = null;
+      }
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current);
         settleTimerRef.current = null;
@@ -295,6 +351,9 @@ useEffect(() => {
       }
       if (idleTimerRef.current !== null) {
         window.clearTimeout(idleTimerRef.current);
+      }
+      if (barkTimerRef.current !== null) {
+        window.clearTimeout(barkTimerRef.current);
       }
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current);
@@ -355,8 +414,10 @@ useEffect(() => {
     setCaptureError(null);
     try {
       // Play flash audio effect right when capturing
-      flashAudio.current.currentTime = 0;
-      flashAudio.current.play().catch((err) => console.warn("Flash audio blocked:", err));
+      if (!soundEffectsMuted) {
+        flashAudio.current.currentTime = 0;
+        flashAudio.current.play().catch((err) => console.warn("Flash audio blocked:", err));
+      }
 
       const dataUrl = webrtc.captureJpeg();
       setFlashing(true);
@@ -410,6 +471,33 @@ useEffect(() => {
       width: houseBounds.width,
       height: houseBounds.height,
     };
+  }
+
+  function playHomeBark() {
+    const audio = barkAudio.current;
+    if (soundEffectsMuted || !barkAudioUnlockedRef.current || !audio.paused) return;
+    audio.volume = 0.28;
+    audio.currentTime = 0;
+    void audio.play().catch((error) => console.warn('Bark audio blocked:', error));
+  }
+
+  function scheduleRandomHomeBark() {
+    if (barkTimerRef.current !== null) {
+      window.clearTimeout(barkTimerRef.current);
+    }
+    barkTimerRef.current = window.setTimeout(() => {
+      barkTimerRef.current = null;
+      if (inRoom) return;
+      playHomeBark();
+      scheduleRandomHomeBark();
+    }, 30_000 + Math.random() * 25_000);
+  }
+
+  function enableHomeBarks() {
+    barkAudioUnlockedRef.current = true;
+    if (!inRoom && barkTimerRef.current === null && !soundEffectsMuted) {
+      scheduleRandomHomeBark();
+    }
   }
 
   function initializeDogNearHouse() {
@@ -557,13 +645,11 @@ useEffect(() => {
         dog.style.transform =
           `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dogScaleRef.current})`;
         if (runningSpriteRef.current) runningSpriteRef.current.style.transform = '';
-        routeMarkerDistancesRef.current = [];
-        nextRouteMarkerRef.current = 0;
-        setRouteMarkers([]);
         animationFrameRef.current = null;
         targetPositionRef.current = null;
         setActiveX(null);
         if (!returningToHouse) {
+          playHomeBark();
           setPastChests((chests) => [
             ...chests,
             { ...destination, id: miniGameItemIdRef.current++ },
@@ -615,8 +701,9 @@ useEffect(() => {
         nextRouteMarkerRef.current += 1;
       }
       if (nextRouteMarkerRef.current > markersBeforeMovement) {
-        const passedCount = nextRouteMarkerRef.current;
-        setRouteMarkers((markers) => markers.slice(passedCount));
+        setRouteMarkers((markers) => markers.map((marker) =>
+          marker.distanceAlong <= distanceTravelled ? { ...marker, passed: true } : marker,
+        ));
       }
       const inverseT = 1 - t;
       const control = routeControlRef.current;
@@ -638,9 +725,9 @@ useEffect(() => {
       dogScaleRef.current = destination.x < current.x ? -1 : 1;
       dog.style.transform =
         `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
-      const gaitPhase = routeProgressRef.current * routeLengthRef.current * 0.18;
-      const sideJiggle = Math.sin(gaitPhase) * 2;
-      const verticalBounce = -Math.abs(Math.sin(gaitPhase)) * 4;
+      const gaitPhase = routeProgressRef.current * routeLengthRef.current * 0.14;
+      const sideJiggle = Math.sin(gaitPhase) * 0.8;
+      const verticalBounce = -Math.abs(Math.sin(gaitPhase)) * 1.8;
       if (runningSpriteRef.current) {
         runningSpriteRef.current.style.transform =
           `translate(${sideJiggle}px, ${verticalBounce}px)`;
@@ -717,7 +804,12 @@ useEffect(() => {
             src={routeMarker}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute z-0 h-7 w-7 select-none object-contain opacity-20 mix-blend-multiply"
+            onTransitionEnd={(event) => {
+              if (marker.passed && event.propertyName === 'opacity') {
+                setRouteMarkers((markers) => markers.filter((item) => item.id !== marker.id));
+              }
+            }}
+            className={`pointer-events-none absolute z-0 h-4 w-4 select-none object-contain mix-blend-multiply transition-opacity duration-1500 ${marker.passed ? 'opacity-0' : 'opacity-20'}`}
             style={{
               left: marker.x,
               top: marker.y,
@@ -811,7 +903,8 @@ useEffect(() => {
       <div
         ref={lobbyRef}
         onClick={handleLobbyClick}
-        className="relative h-full min-h-screen w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
+        onPointerDown={enableHomeBarks}
+        className="relative h-dvh min-h-[100dvh] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
         <div
           aria-hidden="true"
@@ -827,26 +920,26 @@ useEffect(() => {
           onLoad={initializeDogNearHouse}
           className="absolute bottom-6 left-6 z-40 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
         />
-        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-          <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
-            <div className="flex w-full max-w-sm flex-col items-center gap-5">
+        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 text-center sm:gap-8 sm:p-6">
+          <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
+            <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
               <img
                 ref={mobileHouseRef}
                 src={inkHouse}
                 alt=""
                 aria-hidden="true"
                 onLoad={initializeDogNearHouse}
-                className="h-auto w-60 select-none object-contain mix-blend-multiply md:hidden"
+                className="relative top-2 h-auto w-64 select-none object-contain mix-blend-multiply md:hidden"
               />
-              <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
-              <label className="w-full text-center text-xl">
+              <img src={spotleLogo} alt="Spotle" className="relative top-2 w-full max-w-md" />
+              <label className="w-full text-center text-lg sm:text-xl">
                 Your Name
                 <input
                   type="text"
                   value={playerName}
                   onChange={(event) => setPlayerName(event.target.value)}
                   placeholder="Enter your name"
-                  className="mt-3 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-5 text-center text-xl text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
+                  className="mt-2 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-4 text-center text-xl text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
                 />
               </label>
               <button
@@ -876,6 +969,123 @@ useEffect(() => {
             </div>
           </section>
         </main>
+
+        <button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Open settings and credits"
+          className="fixed left-4 top-4 z-[60] flex h-14 w-14 items-center justify-center rounded-full border-4 border-spotle-navy bg-spotle-coral text-spotle-navy shadow-lg transition-transform active:scale-95 md:bottom-6 md:left-auto md:right-6 md:top-auto md:h-16 md:w-16"
+        >
+          <Settings aria-hidden="true" className="h-7 w-7 md:h-8 md:w-8" />
+        </button>
+
+        {isSettingsOpen && (
+          <div
+            data-no-dog-move
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-spotle-navy/70 p-4 backdrop-blur-sm"
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="settings-title"
+              className="relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-5 text-spotle-navy shadow-2xl sm:p-8"
+            >
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                aria-label="Close settings"
+                className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border-2 border-spotle-navy bg-spotle-coral transition-transform active:scale-95"
+              >
+                <X aria-hidden="true" className="h-6 w-6" />
+              </button>
+              <h2 id="settings-title" className="pr-12 text-2xl sm:text-3xl">Settings & Credits</h2>
+
+              <div className="mt-6 space-y-3">
+                <button
+                  type="button"
+                  aria-pressed={soundEffectsMuted}
+                  onClick={() => setSoundEffectsMuted((muted) => !muted)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl border-2 border-spotle-navy bg-white/60 p-4 text-left transition-colors hover:bg-white"
+                >
+                  <span className="flex items-center gap-3 text-base sm:text-lg">
+                    {soundEffectsMuted
+                      ? <VolumeX aria-hidden="true" className="h-6 w-6 shrink-0" />
+                      : <Volume2 aria-hidden="true" className="h-6 w-6 shrink-0" />}
+                    Sound effects
+                  </span>
+                  <span className="text-sm">{soundEffectsMuted ? 'Muted' : 'On'}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={voiceChatMuted}
+                  onClick={() => setVoiceChatMuted((muted) => !muted)}
+                  className="flex w-full items-center justify-between gap-4 rounded-2xl border-2 border-spotle-navy bg-white/60 p-4 text-left transition-colors hover:bg-white"
+                >
+                  <span className="flex items-center gap-3 text-base sm:text-lg">
+                    {voiceChatMuted
+                      ? <MicOff aria-hidden="true" className="h-6 w-6 shrink-0" />
+                      : <Mic aria-hidden="true" className="h-6 w-6 shrink-0" />}
+                    Voice chat
+                  </span>
+                  <span className="text-sm">{voiceChatMuted ? 'Muted' : 'On'}</span>
+                </button>
+              </div>
+
+              <div className="mt-7 border-t-2 border-spotle-navy/15 pt-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl">Made at SwampHacks XII</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-spotle-navy/75 sm:text-base">
+                      Built by four UF sophomores with Gator spirit.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsHornsDownOpen(true)}
+                    aria-label="Show the Gator horns-down photo"
+                    className="shrink-0 rounded-xl p-1 transition-transform active:scale-95"
+                  >
+                    <img src={gatorLogo} alt="Florida Gators logo — click for a surprise" className="h-16 w-16 object-contain sm:h-20 sm:w-20" />
+                  </button>
+                </div>
+                <ul className="mt-5 grid grid-cols-2 gap-2 text-sm sm:text-base">
+                  {['Alexander Schunko', 'Angel Reyes', 'Jayden Valera', 'Mason Levy'].map((name) => (
+                    <li key={name} className="rounded-xl bg-spotle-navy/5 px-3 py-2">{name}</li>
+                  ))}
+                </ul>
+                <p className="mt-5 text-center text-lg text-spotle-coral">Go Gators!</p>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {isHornsDownOpen && (
+          <div
+            data-no-dog-move
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-spotle-navy/85 p-4 backdrop-blur-sm"
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label="Horns-down Gator surprise"
+              className="relative w-full max-w-xl rounded-2xl border-4 border-spotle-cream bg-spotle-cream p-3 shadow-2xl"
+            >
+              <button
+                type="button"
+                onClick={() => setIsHornsDownOpen(false)}
+                aria-label="Close photo"
+                className="absolute -right-3 -top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border-2 border-spotle-navy bg-spotle-coral text-spotle-navy"
+              >
+                <X aria-hidden="true" className="h-6 w-6" />
+              </button>
+              <img
+                src={hornsDownImage}
+                alt="A playful horns-down photo from the SwampHacks team"
+                className="max-h-[80dvh] w-full rounded-xl object-contain"
+              />
+            </section>
+          </div>
+        )}
 
         {isJoinModalOpen && (
           <div data-lobby-ui className="fixed inset-0 z-50 flex items-center justify-center bg-spotle-navy/70 p-6">
