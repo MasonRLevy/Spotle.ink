@@ -13,8 +13,6 @@ export type RoomStatus =
   | 'ROUND_RESULT'
   | 'GAME_OVER';
 
-export type ThemeType = 'GENERAL' | 'UF_SWAMP' | 'HACKATHON' | 'OUTDOORS';
-
 export type PlayerStatus =
   | 'READY'
   | 'SEARCHING'
@@ -57,11 +55,20 @@ export interface RoundData {
   finishers: string[];
 }
 
+export interface RoundStartPayload {
+  roundNumber: number;
+  targetObject: string;
+  hint: string;
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  visualType?: 'emoji' | 'lucide' | 'image';
+  visualValue?: string;
+  startTime: number;
+}
+
 export interface RoomSettings {
   maxPlayers: number;
   totalRounds: number;
   roundTimeLimitSec: number;
-  theme: ThemeType;
 }
 
 export interface RoomState {

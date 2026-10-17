@@ -71,6 +71,36 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+/**
+ * Debug view of a room. Open https://<host>/api/rooms/<pin>/debug on any
+ * device to see whether every player actually registered a PeerJS id.
+ *
+ * Reading this answers the usual "I can't see their camera" question:
+ *   peerId "MISSING" -> that device never reached the PeerJS broker, so
+ *                       nobody can call it. Signalling problem.
+ *   all peerIds present but no video -> the call is being set up but media
+ *                       is blocked between the networks. NAT/firewall problem.
+ */
+app.get('/api/rooms/:pin/debug', (req, res) => {
+  const room = getRoom(req.params.pin);
+  if (!room) {
+    res.status(404).json({ error: 'No room with that PIN.' });
+    return;
+  }
+  res.json({
+    roomCode: room.roomCode,
+    status: room.status,
+    playerCount: Object.keys(room.players).length,
+    players: Object.values(room.players).map((p) => ({
+      name: p.name,
+      isHost: p.isHost,
+      status: p.status,
+      peerId: p.peerId || 'MISSING - this device never registered with PeerJS',
+      score: p.score,
+    })),
+  });
+});
+
 // Role 4's standalone referee endpoints stay mounted for testing.
 app.use(refereeRouter);
 

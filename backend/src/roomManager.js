@@ -14,7 +14,6 @@ export function createRoom({ roomCode, hostId, hostName = 'Host' }) {
       maxPlayers: 4,
       totalRounds: 5,
       roundTimeLimitSec: 60,
-      theme: 'GENERAL',
     },
     players: {},
     currentRound: null,

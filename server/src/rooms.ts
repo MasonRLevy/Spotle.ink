@@ -13,7 +13,6 @@ const DEFAULT_SETTINGS = {
   maxPlayers: 4,
   totalRounds: 10,
   roundTimeLimitSec: 90,
-  theme: 'GENERAL' as const,
 };
 
 /** 6-digit numeric PIN, matching the join modal in the UI. */
