@@ -231,6 +231,7 @@ useEffect(() => {
     localPlayerId: game.playerId ?? 'local',
     remotePeers,
     onLocalPeerId: game.registerPeerId,
+    voiceEnabled: !voiceChatMuted,
   });
 
   useEffect(() => {
@@ -241,22 +242,8 @@ useEffect(() => {
     wrongAudio.current.muted = muted;
   }, [soundEffectsMuted]);
 
-  /**
-   * Settings -> "Voice chat" controls INCOMING audio only (whether you hear
-   * other players).
-   *
-   * It must not touch the local mic track: that is owned by useWebRTC's
-   * toggleMic, behind the mic button on your own name. This effect re-runs
-   * whenever remoteMedia changes, so including the local stream here would
-   * silently un-mute your mic every time somebody joined or left.
-   */
-  useEffect(() => {
-    Object.values(webrtc.remoteMedia).forEach((media) => {
-      media.stream.getAudioTracks().forEach((track) => {
-        track.enabled = !voiceChatMuted;
-      });
-    });
-  }, [voiceChatMuted, webrtc.remoteMedia]);
+  // Audio track state lives in useWebRTC, which applies both the master
+  // voice switch and the per-user mic preference in one place.
 
   useEffect(() => {
     if (soundEffectsMuted) {
@@ -1190,9 +1177,9 @@ useEffect(() => {
                         label={`${player.name}${player.isHost ? ' (Host)' : ''}`}
                         mirrored={player.id === game.playerId && webrtc.facingMode === 'user'}
                         isLocal={player.id === game.playerId}
-                        micEnabled={webrtc.micEnabled}
+                        micEnabled={webrtc.micActive}
                         onToggleMic={
-                          player.id === game.playerId && webrtc.micAvailable
+                          player.id === game.playerId && webrtc.micAvailable && !voiceChatMuted
                             ? webrtc.toggleMic
                             : undefined
                         }
@@ -1376,8 +1363,8 @@ useEffect(() => {
       facingMode={webrtc.facingMode}
       isFlipping={webrtc.isFlipping}
       onFlipCamera={webrtc.flipCamera}
-      micEnabled={webrtc.micEnabled}
-      onToggleMic={webrtc.micAvailable ? webrtc.toggleMic : undefined}
+      micEnabled={webrtc.micActive}
+      onToggleMic={webrtc.micAvailable && !voiceChatMuted ? webrtc.toggleMic : undefined}
       onFoundIt={handleFoundIt}
       onGiveUp={handleGiveUp}
     />
@@ -1498,13 +1485,26 @@ function PlayerTile({
         </div>
       )}
 
-      {isLocal && onToggleMic ? (
+      {isLocal ? (
         <button
           type="button"
           onClick={onToggleMic}
+          disabled={!onToggleMic}
           aria-pressed={!micEnabled}
-          aria-label={micEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
-          title={micEnabled ? 'Click to mute your mic' : 'Click to unmute your mic'}
+          aria-label={
+            !onToggleMic
+              ? 'Microphone off - voice chat is disabled in Settings'
+              : micEnabled
+                ? 'Mute your microphone'
+                : 'Unmute your microphone'
+          }
+          title={
+            !onToggleMic
+              ? 'Voice chat is off in Settings'
+              : micEnabled
+                ? 'Click to mute your mic'
+                : 'Click to unmute your mic'
+          }
           className={`absolute top-2 z-20 flex max-w-[calc(100%-1rem)] items-center gap-2 truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy transition-transform active:scale-95 md:text-2xl ${
             nameOnRight ? 'right-2' : 'left-2'
           }`}

@@ -76,14 +76,30 @@ export function LobbyCamTile({
         </div>
       )}
 
-      {canToggle ? (
+      {isLocal ? (
+        // Always show the mic state on your own tile. When voice chat is
+        // switched off entirely there is nothing to toggle, but you still
+        // need to see that you are muted.
         <button
           type="button"
           onClick={onToggleMic}
+          disabled={!canToggle}
           aria-pressed={!micEnabled}
-          aria-label={micEnabled ? `Mute ${label}` : `Unmute ${label}`}
-          title={micEnabled ? 'Click to mute your mic' : 'Click to unmute your mic'}
-          className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-spotle-navy/80 px-2 py-1 text-center text-sm text-spotle-coral transition-transform active:scale-95"
+          aria-label={
+            !canToggle
+              ? `${label} - microphone off`
+              : micEnabled
+                ? `Mute ${label}`
+                : `Unmute ${label}`
+          }
+          title={
+            !canToggle
+              ? 'Voice chat is off in Settings'
+              : micEnabled
+                ? 'Click to mute your mic'
+                : 'Click to unmute your mic'
+          }
+          className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-spotle-navy/80 px-2 py-1 text-center text-sm text-spotle-coral transition-transform active:scale-95 disabled:cursor-default disabled:active:scale-100"
         >
           {micEnabled ? (
             <Mic aria-hidden="true" className="h-4 w-4 shrink-0" />
