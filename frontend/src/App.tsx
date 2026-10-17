@@ -120,7 +120,7 @@ useEffect(() => {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [room?.status]);
+  }, [room?.status, round?.roundNumber]);
   useEffect(() => {
     const verdict = game.lastVerdict;
     if (!verdict) return;
