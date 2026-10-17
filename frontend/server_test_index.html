@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Photo Roulette Sandbox</title>
+    <style>
+        body { font-family: monospace; background: #111; color: #fff; padding: 20px; }
+        .box { border: 1px solid #333; padding: 15px; margin-bottom: 15px; max-width: 400px; }
+        input, button { padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        #log { background: #000; padding: 10px; height: 150px; overflow-y: auto; color: #0f0; }
+    </style>
+</head>
+<body>
+
+    <h2>Photo Roulette TS Tester</h2>
+
+    <div class="box">
+        <label>Nickname:</label>
+        <input type="text" id="username" value="Player1">
+        <button id="btn-host">Host Game</button>
+    </div>
+
+    <div class="box">
+        <label>Join Game PIN:</label>
+        <input type="text" id="pin-input" placeholder="6-digit PIN" maxlength="6">
+        <button id="btn-join">Join Game</button>
+    </div>
+
+    <div class="box">
+        <h3>Room Info</h3>
+        <p>PIN: <strong id="current-pin">None</strong></p>
+        <p>Players:</p>
+        <ul id="player-list"></ul>
+    </div>
+
+    <div class="box">
+        <h3>Network Logs</h3>
+        <pre id="log"></pre>
+    </div>
+
+    <!-- Include your compiled JS file or Vite entry script -->
+    <script type="module" src="/src/server_testing.ts"></script>
+</body>
+</html>
