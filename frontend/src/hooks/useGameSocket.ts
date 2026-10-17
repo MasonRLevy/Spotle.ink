@@ -41,6 +41,7 @@ export interface UseGameSocket {
   registerPeerId: (peerId: string) => void;
   startGame: () => void;
   sendAttempt: (imageDataUrl: string) => void;
+  giveUp: () => void;
   skip: () => void;
   resetGame: () => void;
   clearVerdict: () => void;
@@ -141,6 +142,10 @@ export function useGameSocket(): UseGameSocket {
     socketRef.current?.emit('round:attempt', { imageDataUrl });
   }, []);
 
+  const giveUp = useCallback(() => {
+    socketRef.current?.emit('round:give-up');
+  }, []);
+
   const skip = useCallback(() => {
     socketRef.current?.emit('round:skip');
   }, []);
@@ -164,6 +169,7 @@ export function useGameSocket(): UseGameSocket {
     registerPeerId,
     startGame,
     sendAttempt,
+    giveUp,
     skip,
     resetGame,
     clearVerdict,

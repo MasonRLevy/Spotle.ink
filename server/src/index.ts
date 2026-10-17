@@ -32,9 +32,9 @@ import {
 import {
   broadcastRoom,
   clearTimers,
+  giveUpPlayer,
   handleAttempt,
   nextRound,
-  skipRound,
   startGame,
 } from './gameEngine.js';
 import { refereeRouter } from '../gemini-referee/refereeRouter.js';
@@ -148,12 +148,16 @@ io.on('connection', (socket) => {
     void handleAttempt(io, room, socket.id, imageDataUrl);
   });
 
+  socket.on('round:give-up', () => {
+    const room = pin ? getRoom(pin) : undefined;
+    if (!room) return;
+    giveUpPlayer(io, room, socket.id);
+  });
+
   socket.on('round:skip', () => {
     const room = pin ? getRoom(pin) : undefined;
     if (!room || room.hostId !== socket.id) return;
-    // During the scoreboard this advances; mid-hunt it ends the round.
     if (room.status === 'ROUND_RESULT') nextRound(io, room);
-    else skipRound(io, room);
   });
 
   socket.on('game:reset', () => {

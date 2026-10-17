@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import confetti from 'canvas-confetti';
 import { Clock, Crown, SwitchCamera, X } from 'lucide-react';
-import spotleLogo from '../../Assets/Spotle_Logo.png';
+import spotleLogo from './assets/Spotle_Logo.png';
+import dogMouthClosed from './assets/Spot_mouth_closed.png';
+import dogMouthOpen from './assets/Spot_mouth_open.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
-import type { Player, RoundData, VerdictEvent } from '@shared/game';
+import type { Player, RoundData } from '@shared/game';
 
 const maxPlayers = 4;
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
 
-const taskbarHeightClass = 'h-28';
+const taskbarHeightClass = 'h-32';
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -21,7 +23,7 @@ function formatTime(seconds: number) {
 
 function getGridClass(playerCount: number) {
   if (playerCount === 1) return 'grid-cols-1 grid-rows-1';
-  if (playerCount === 2) return 'grid-cols-1 grid-rows-2';
+  if (playerCount === 2) return 'grid-cols-2 grid-rows-1';
   return 'grid-cols-2 grid-rows-2';
 }
 
@@ -35,6 +37,12 @@ export default function App() {
   const [flashing, setFlashing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [skippedPlayers, setSkippedPlayers] = useState<string[]>([]);
+  const [refereeMessage, setRefereeMessage] = useState<string | null>(null);
+  const [refereePlayerId, setRefereePlayerId] = useState<string | null>(null);
+  const [isTalking, setIsTalking] = useState(false);
+  const [isMouthOpen, setIsMouthOpen] = useState(false);
+  const [isRefereeFading, setIsRefereeFading] = useState(false);
 
   const room = game.room;
   const me = room && game.playerId ? room.players[game.playerId] : undefined;
@@ -42,6 +50,15 @@ export default function App() {
   const isHost = Boolean(me?.isHost);
   const round = game.round;
   const inRoom = Boolean(room);
+  const allPlayersSettled =
+    players.length > 0
+    && players.every((player) => player.status === 'FOUND' || player.status === 'SKIPPED');
+
+  useEffect(() => {
+    setSkippedPlayers(
+      players.filter((player) => player.status === 'SKIPPED').map((player) => player.id),
+    );
+  }, [players]);
 
   // --- WebRTC: start the camera as soon as we are in a room, so PeerJS has
   // time to mesh before round 1 begins.
@@ -69,6 +86,48 @@ export default function App() {
     const id = window.setInterval(tick, 100);
     return () => window.clearInterval(id);
   }, [round, room?.status]);
+
+  useEffect(() => {
+    const verdict = game.lastVerdict;
+    if (!verdict) {
+      setRefereeMessage(null);
+      setRefereePlayerId(null);
+      setIsTalking(false);
+      setIsRefereeFading(false);
+      return;
+    }
+
+    setRefereePlayerId(verdict.playerId);
+    setRefereeMessage(verdict.verdict.commentary || 'Wow, you actually found it!');
+    setIsTalking(true);
+    setIsRefereeFading(false);
+
+    const fadeTimeout = window.setTimeout(() => setIsRefereeFading(true), 3700);
+    const clearTimeoutId = window.setTimeout(() => {
+      setRefereeMessage(null);
+      setRefereePlayerId(null);
+      setIsTalking(false);
+      setIsRefereeFading(false);
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(fadeTimeout);
+      window.clearTimeout(clearTimeoutId);
+    };
+  }, [game.lastVerdict]);
+
+  useEffect(() => {
+    if (!isTalking || !refereeMessage) {
+      setIsMouthOpen(false);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setIsMouthOpen((open) => !open);
+    }, 200);
+
+    return () => window.clearInterval(intervalId);
+  }, [isTalking, refereeMessage]);
 
   // --- Confetti when our own find is accepted.
   const lastCelebrated = useRef<string | null>(null);
@@ -130,6 +189,28 @@ export default function App() {
         error instanceof Error ? error.message : 'Could not grab a camera frame.',
       );
     }
+  }
+
+  function handleGiveUp() {
+    if (
+      elapsedSeconds < 30
+      || !game.playerId
+      || !me
+      || me.status === 'FOUND'
+      || me.status === 'VERIFYING'
+      || me.status === 'SKIPPED'
+      || skippedPlayers.includes(game.playerId)
+    ) {
+      return;
+    }
+
+    setSkippedPlayers((current) => [...current, game.playerId!]);
+    game.giveUp();
+  }
+
+  function handleNextRound() {
+    setSkippedPlayers([]);
+    game.skip();
   }
 
   function leaveGame() {
@@ -282,7 +363,11 @@ export default function App() {
   }
 
   /* --------------------------- SCOREBOARD ---------------------------- */
-  if (room!.status === 'ROUND_RESULT' || room!.status === 'GAME_OVER') {
+  if (
+    (room!.status === 'ROUND_RESULT' || room!.status === 'GAME_OVER')
+    && allPlayersSettled
+    && !refereeMessage
+  ) {
     return (
       <ScoreboardScreen
         players={players}
@@ -290,7 +375,7 @@ export default function App() {
         totalRounds={room!.settings.totalRounds}
         isFinal={room!.status === 'GAME_OVER'}
         isHost={isHost}
-        onNextRound={game.skip}
+        onNextRound={handleNextRound}
         onPlayAgain={game.resetGame}
         onExit={leaveGame}
       />
@@ -302,14 +387,27 @@ export default function App() {
     <PlayingScreen
       players={players}
       localPlayerId={game.playerId}
+      skippedPlayers={skippedPlayers}
       round={round}
       totalRounds={room!.settings.totalRounds}
       elapsedSeconds={elapsedSeconds}
       isCountdown={room!.status === 'COUNTDOWN'}
-      isHost={isHost}
       canPress={me?.status === 'SEARCHING'}
+      canSkip={
+        elapsedSeconds >= 30
+        && room!.status === 'HUNTING'
+        && Boolean(me)
+        && me?.status !== 'FOUND'
+        && me?.status !== 'VERIFYING'
+        && me?.status !== 'SKIPPED'
+        && !skippedPlayers.includes(game.playerId ?? '')
+      }
       flashing={flashing}
-      verdict={game.lastVerdict}
+      refereeMessage={refereeMessage}
+      refereePlayerId={refereePlayerId}
+      isTalking={isTalking}
+      isMouthOpen={isMouthOpen}
+      isRefereeFading={isRefereeFading}
       captureError={captureError ?? webrtc.error}
       localVideoRef={webrtc.localVideoRef}
       localStream={webrtc.localStream}
@@ -318,7 +416,7 @@ export default function App() {
       isFlipping={webrtc.isFlipping}
       onFlipCamera={webrtc.flipCamera}
       onFoundIt={handleFoundIt}
-      onSkip={game.skip}
+      onGiveUp={handleGiveUp}
     />
   );
 }
@@ -333,6 +431,12 @@ function PlayerTile({
   stream,
   facingMode,
   showCrown,
+  nameOnRight,
+  isSkipped,
+  refereeMessage,
+  isTalking,
+  isMouthOpen,
+  isRefereeFading,
 }: {
   player: Player;
   isLocal: boolean;
@@ -341,6 +445,12 @@ function PlayerTile({
   stream: MediaStream | undefined;
   facingMode: 'user' | 'environment';
   showCrown: boolean;
+  nameOnRight: boolean;
+  isSkipped: boolean;
+  refereeMessage: string | null;
+  isTalking: boolean;
+  isMouthOpen: boolean;
+  isRefereeFading: boolean;
 }) {
   const statusOverlay =
     player.status === 'VERIFYING'
@@ -388,7 +498,9 @@ function PlayerTile({
         </div>
       )}
 
-      <p className="absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl">
+      <p className={`absolute top-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
+        nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
+      }`}>
         {player.name}
         {isLocal ? ' (You)' : ''}
       </p>
@@ -400,7 +512,7 @@ function PlayerTile({
         />
       )}
 
-      {player.reactionMs !== undefined && (
+      {player.reactionMs !== undefined && !refereeMessage && (
         <p className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border-2 border-spotle-cream bg-spotle-coral px-5 py-3 text-lg text-spotle-navy md:text-2xl">
           {(player.reactionMs / 1000).toFixed(1)}s
         </p>
@@ -416,6 +528,33 @@ function PlayerTile({
           </p>
         </div>
       )}
+
+      {isSkipped && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-spotle-navy/75" role="status">
+          <p className="border-4 border-red-600 bg-spotle-cream px-5 py-4 text-center text-2xl text-red-700 md:text-4xl">
+            SKIPPED
+          </p>
+        </div>
+      )}
+
+      {refereeMessage && (
+        <div
+          className={`absolute inset-0 z-30 grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-center gap-2 bg-spotle-navy/80 p-2 transition-opacity duration-300 sm:gap-4 sm:p-4 ${
+            isRefereeFading ? 'opacity-0' : 'opacity-100'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <img
+            src={isTalking && isMouthOpen ? dogMouthOpen : dogMouthClosed}
+            alt="Spotle referee dog"
+            className="max-h-full w-full object-contain"
+          />
+          <p className="break-words border-4 border-spotle-cream bg-spotle-coral p-2 text-center text-xs leading-relaxed text-spotle-navy sm:p-4 sm:text-base md:text-xl">
+            {refereeMessage}
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -423,13 +562,13 @@ function PlayerTile({
 function TargetPanel({ round }: { round: RoundData | null }) {
   if (!round) return null;
   return (
-    <figure className="flex w-32 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-sm text-spotle-coral md:w-36 md:text-base lg:w-40 lg:text-lg">
+    <figure className="flex w-24 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-xs text-spotle-coral md:w-56 md:text-lg">
       <img
         src={round.targetIconUrl}
         alt={round.targetObject}
         className="aspect-square w-full bg-spotle-cream object-contain p-2"
       />
-      <figcaption className="w-full px-3 py-3">{round.targetObject}</figcaption>
+      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">{round.targetObject}</figcaption>
     </figure>
   );
 }
@@ -437,14 +576,19 @@ function TargetPanel({ round }: { round: RoundData | null }) {
 function PlayingScreen({
   players,
   localPlayerId,
+  skippedPlayers,
   round,
   totalRounds,
   elapsedSeconds,
   isCountdown,
-  isHost,
   canPress,
+  canSkip,
   flashing,
-  verdict,
+  refereeMessage,
+  refereePlayerId,
+  isTalking,
+  isMouthOpen,
+  isRefereeFading,
   captureError,
   localVideoRef,
   localStream,
@@ -453,18 +597,23 @@ function PlayingScreen({
   isFlipping,
   onFlipCamera,
   onFoundIt,
-  onSkip,
+  onGiveUp,
 }: {
   players: Player[];
   localPlayerId: string | null;
+  skippedPlayers: string[];
   round: RoundData | null;
   totalRounds: number;
   elapsedSeconds: number;
   isCountdown: boolean;
-  isHost: boolean;
   canPress: boolean;
+  canSkip: boolean;
   flashing: boolean;
-  verdict: VerdictEvent | null;
+  refereeMessage: string | null;
+  refereePlayerId: string | null;
+  isTalking: boolean;
+  isMouthOpen: boolean;
+  isRefereeFading: boolean;
   captureError: string | null;
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
   localStream: MediaStream | null;
@@ -473,14 +622,14 @@ function PlayingScreen({
   isFlipping: boolean;
   onFlipCamera: () => void;
   onFoundIt: () => void;
-  onSkip: () => void;
+  onGiveUp: () => void;
 }) {
   const hasTargetCell = players.length === 3;
 
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
       <div
-        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-7rem)] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
+        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-8rem)] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
       >
         {Array.from({ length: hasTargetCell ? maxPlayers : players.length }, (_, index) => {
           if (hasTargetCell && index === maxPlayers - 1) {
@@ -521,44 +670,39 @@ function PlayingScreen({
                 Object.values(remoteMedia).find((m) => m.playerId === player.id)?.stream
               }
               facingMode={facingMode}
-              showCrown={player.placement === 1}
+              showCrown={player.placement === 1 && refereePlayerId !== player.id}
+              nameOnRight={players.length >= 3 && (index === 1 || index === 3)}
+              isSkipped={skippedPlayers.includes(player.id) || player.status === 'SKIPPED'}
+              refereeMessage={
+                refereePlayerId === player.id && player.status !== 'SKIPPED'
+                  ? refereeMessage
+                  : null
+              }
+              isTalking={isTalking && refereePlayerId === player.id}
+              isMouthOpen={isMouthOpen}
+              isRefereeFading={isRefereeFading}
             />
           );
         })}
       </div>
 
-      {(players.length === 2 || players.length === maxPlayers) && (
-        <div className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-7rem)/2)] z-20 flex -translate-y-1/2 justify-center">
+      {players.length >= 3 && players.length === maxPlayers && (
+        <div className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-8rem)/2)] z-20 flex -translate-y-1/2 justify-center">
           <TargetPanel round={round} />
         </div>
       )}
 
-      {players.length === 1 && (
-        <div className="pointer-events-none absolute inset-x-0 top-24 z-20 flex justify-center">
+      {players.length <= 2 && (
+        <div className="pointer-events-none absolute right-4 top-4 z-50">
           <TargetPanel round={round} />
         </div>
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-        <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-5 py-3 text-center text-2xl text-spotle-navy md:px-8 md:text-4xl">
+        <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-3 py-2 text-center text-sm text-spotle-navy md:px-8 md:py-3 md:text-4xl">
           ROUND {round?.roundNumber ?? 1} / {totalRounds}
         </div>
       </div>
-
-      {verdict && (
-        <div className="pointer-events-none absolute inset-x-0 top-24 z-30 flex justify-center px-4">
-          <p
-            className={`max-w-xl rounded-3xl border-4 px-5 py-3 text-center text-lg md:text-xl ${
-              verdict.verdict.verified
-                ? 'border-spotle-cream bg-green-500 text-spotle-navy'
-                : 'border-spotle-cream bg-spotle-navy text-spotle-coral'
-            }`}
-          >
-            {verdict.playerName}: {verdict.verdict.commentary}
-            {verdict.pointsAwarded ? ` (+${verdict.pointsAwarded})` : ''}
-          </p>
-        </div>
-      )}
 
       {captureError && (
         <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
@@ -570,7 +714,7 @@ function PlayingScreen({
 
       <nav
         aria-label="Game controls"
-        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 py-3 text-spotle-navy sm:gap-6 sm:px-8`}
+        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 pb-4 pt-2 text-spotle-navy sm:gap-6 sm:px-8`}
       >
         <button
           type="button"
@@ -592,11 +736,11 @@ function PlayingScreen({
           >
             FOUND IT!
           </button>
-          {isHost && (
+          {canSkip && (
             <button
               type="button"
-              onClick={onSkip}
-              aria-label="Skip this round"
+              onClick={onGiveUp}
+              aria-label="Give up this round"
               className="h-20 shrink-0 rounded-3xl border-4 border-spotle-navy bg-spotle-navy px-3 text-center text-lg text-spotle-coral transition-transform active:scale-95 sm:h-24 sm:px-8 sm:text-3xl"
             >
               SKIP

@@ -102,6 +102,9 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
     room.roomCode,
     () => {
       if (room.status === 'HUNTING' && room.currentRound?.roundNumber === roundNumber) {
+        for (const player of Object.values(room.players)) {
+          if (player.status !== 'FOUND') player.status = 'SKIPPED';
+        }
         endRound(io, room);
       }
     },
@@ -138,6 +141,9 @@ export async function handleAttempt(
     });
   } catch (error) {
     console.error('[gameEngine] verification error:', error);
+    if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) {
+      return;
+    }
     player.status = 'SEARCHING';
     broadcastRoom(io, room);
     io.to(room.roomCode).emit('round:verdict', {
@@ -158,8 +164,6 @@ export async function handleAttempt(
 
   // The round may have ended while Gemini was thinking.
   if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) {
-    player.status = 'SEARCHING';
-    broadcastRoom(io, room);
     return;
   }
 
@@ -207,10 +211,32 @@ export async function handleAttempt(
     reactionMs,
   });
 
-  const everyoneFound = Object.keys(room.players).every((id) =>
-    round.finishers.includes(id),
+  const everyoneFinished = Object.values(room.players).every(
+    (roundPlayer) => roundPlayer.status === 'FOUND' || roundPlayer.status === 'SKIPPED',
   );
-  if (everyoneFound) {
+  if (everyoneFinished) {
+    schedule(room.roomCode, () => endRound(io, room), 1200);
+  }
+}
+
+/** A player gave up on their own attempt without affecting other players. */
+export function giveUpPlayer(io: GameServer, room: RoomState, playerId: string): void {
+  const player = room.players[playerId];
+  const round = room.currentRound;
+
+  if (!player || !round || room.status !== 'HUNTING') return;
+  if (Date.now() - round.startTime < 30_000) return;
+  if (player.status === 'FOUND' || player.status === 'VERIFYING' || player.status === 'SKIPPED') {
+    return;
+  }
+
+  player.status = 'SKIPPED';
+  broadcastRoom(io, room);
+
+  const everyoneFinished = Object.values(room.players).every(
+    (roundPlayer) => roundPlayer.status === 'FOUND' || roundPlayer.status === 'SKIPPED',
+  );
+  if (everyoneFinished) {
     schedule(room.roomCode, () => endRound(io, room), 1200);
   }
 }
@@ -218,10 +244,14 @@ export async function handleAttempt(
 export function endRound(io: GameServer, room: RoomState): void {
   const round = room.currentRound;
   if (!round || room.status !== 'HUNTING') return;
+  const everyoneFinished = Object.values(room.players).every(
+    (player) => player.status === 'FOUND' || player.status === 'SKIPPED',
+  );
+  if (!everyoneFinished) return;
 
   room.status = 'ROUND_RESULT';
   for (const player of Object.values(room.players)) {
-    if (player.status !== 'FOUND') player.status = 'READY';
+    if (player.status !== 'FOUND' && player.status !== 'SKIPPED') player.status = 'READY';
   }
 
   const isFinalRound = round.roundNumber >= room.settings.totalRounds;
@@ -256,9 +286,4 @@ export function nextRound(io: GameServer, room: RoomState): void {
     return;
   }
   beginRound(io, room, next);
-}
-
-/** Host gave up on the current round. */
-export function skipRound(io: GameServer, room: RoomState): void {
-  if (room.status === 'HUNTING') endRound(io, room);
 }

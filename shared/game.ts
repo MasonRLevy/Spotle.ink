@@ -15,7 +15,13 @@ export type RoomStatus =
 
 export type ThemeType = 'GENERAL' | 'UF_SWAMP' | 'HACKATHON' | 'OUTDOORS';
 
-export type PlayerStatus = 'READY' | 'SEARCHING' | 'VERIFYING' | 'FOUND' | 'PENALIZED';
+export type PlayerStatus =
+  | 'READY'
+  | 'SEARCHING'
+  | 'VERIFYING'
+  | 'FOUND'
+  | 'PENALIZED'
+  | 'SKIPPED';
 
 export type MatchQuality =
   | 'EXACT'
@@ -136,6 +142,7 @@ export interface ClientToServerEvents {
   'peer:register': (payload: { peerId: string }) => void;
   'game:start': () => void;
   'round:attempt': (payload: AttemptPayload) => void;
+  'round:give-up': () => void;
   'round:skip': () => void;
   'game:reset': () => void;
 }
