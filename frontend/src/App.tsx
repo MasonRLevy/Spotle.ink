@@ -241,14 +241,22 @@ useEffect(() => {
     wrongAudio.current.muted = muted;
   }, [soundEffectsMuted]);
 
+  /**
+   * Settings -> "Voice chat" controls INCOMING audio only (whether you hear
+   * other players).
+   *
+   * It must not touch the local mic track: that is owned by useWebRTC's
+   * toggleMic, behind the mic button on your own name. This effect re-runs
+   * whenever remoteMedia changes, so including the local stream here would
+   * silently un-mute your mic every time somebody joined or left.
+   */
   useEffect(() => {
-    const streams = [webrtc.localStream, ...Object.values(webrtc.remoteMedia).map((media) => media.stream)];
-    streams.forEach((stream) => {
-      stream?.getAudioTracks().forEach((track) => {
+    Object.values(webrtc.remoteMedia).forEach((media) => {
+      media.stream.getAudioTracks().forEach((track) => {
         track.enabled = !voiceChatMuted;
       });
     });
-  }, [voiceChatMuted, webrtc.localStream, webrtc.remoteMedia]);
+  }, [voiceChatMuted, webrtc.remoteMedia]);
 
   useEffect(() => {
     if (soundEffectsMuted) {
@@ -1181,6 +1189,13 @@ useEffect(() => {
                         }
                         label={`${player.name}${player.isHost ? ' (Host)' : ''}`}
                         mirrored={player.id === game.playerId && webrtc.facingMode === 'user'}
+                        isLocal={player.id === game.playerId}
+                        micEnabled={webrtc.micEnabled}
+                        onToggleMic={
+                          player.id === game.playerId && webrtc.micAvailable
+                            ? webrtc.toggleMic
+                            : undefined
+                        }
                         placeholder={
                           player.id === game.playerId ? 'Starting camera…' : 'Connecting…'
                         }
@@ -1361,6 +1376,8 @@ useEffect(() => {
       facingMode={webrtc.facingMode}
       isFlipping={webrtc.isFlipping}
       onFlipCamera={webrtc.flipCamera}
+      micEnabled={webrtc.micEnabled}
+      onToggleMic={webrtc.micAvailable ? webrtc.toggleMic : undefined}
       onFoundIt={handleFoundIt}
       onGiveUp={handleGiveUp}
     />
@@ -1372,6 +1389,8 @@ useEffect(() => {
 function PlayerTile({
   player,
   isLocal,
+  micEnabled,
+  onToggleMic,
   localVideoRef,
   localStream,
   stream,
@@ -1387,6 +1406,8 @@ function PlayerTile({
 }: {
   player: Player;
   isLocal: boolean;
+  micEnabled?: boolean;
+  onToggleMic?: () => void;
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
   localStream: MediaStream | null;
   stream: MediaStream | undefined;
@@ -1477,11 +1498,31 @@ function PlayerTile({
         </div>
       )}
 
-      <p className={`absolute top-2 z-20 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
-        nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
-      }`}>
-        {isLocal ? 'You' : player.name}
-      </p>
+      {isLocal && onToggleMic ? (
+        <button
+          type="button"
+          onClick={onToggleMic}
+          aria-pressed={!micEnabled}
+          aria-label={micEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
+          title={micEnabled ? 'Click to mute your mic' : 'Click to unmute your mic'}
+          className={`absolute top-2 z-20 flex max-w-[calc(100%-1rem)] items-center gap-2 truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy transition-transform active:scale-95 md:text-2xl ${
+            nameOnRight ? 'right-2' : 'left-2'
+          }`}
+        >
+          {micEnabled ? (
+            <Mic aria-hidden="true" className="h-5 w-5 shrink-0 md:h-6 md:w-6" />
+          ) : (
+            <MicOff aria-hidden="true" className="h-5 w-5 shrink-0 text-red-700 md:h-6 md:w-6" />
+          )}
+          <span className="truncate">You</span>
+        </button>
+      ) : (
+        <p className={`absolute top-2 z-20 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
+          nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
+        }`}>
+          {isLocal ? 'You' : player.name}
+        </p>
+      )}
 
       {showCrown && (
         <Crown
@@ -1602,6 +1643,8 @@ function PlayingScreen({
   facingMode,
   isFlipping,
   onFlipCamera,
+  micEnabled,
+  onToggleMic,
   onFoundIt,
   onGiveUp,
 }: {
@@ -1628,6 +1671,8 @@ function PlayingScreen({
   facingMode: 'user' | 'environment';
   isFlipping: boolean;
   onFlipCamera: () => void;
+  micEnabled?: boolean;
+  onToggleMic?: () => void;
   onFoundIt: () => void;
   onGiveUp: () => void;
 }) {
@@ -1690,6 +1735,8 @@ function PlayingScreen({
               key={player.id}
               player={player}
               isLocal={isLocal}
+              micEnabled={micEnabled}
+              onToggleMic={isLocal ? onToggleMic : undefined}
               localVideoRef={localVideoRef}
               localStream={localStream}
               stream={
