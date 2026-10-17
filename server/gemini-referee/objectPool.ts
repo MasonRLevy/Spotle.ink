@@ -51,6 +51,15 @@ function item(
  * Icons: Microsoft Fluent UI Emoji Flat SVG via Iconify CDN.
  */
 export const OBJECT_POOL: FindableObject[] = [
+  // --- UF CAMPUS LANDMARKS & CAMPUS ITEMS ---
+  item("century-tower", "Century Tower", "HACKATHON_CAMPUS", "MEDIUM", "🕰️", "1f570", "clock", "Century Tower, bell tower, UF carillon, tall clock tower on campus"),
+  item("french-fries-sculpture", "French Fries Sculpture", "HACKATHON_CAMPUS", "MEDIUM", "✨", "2728", "sparkles", "French Fries sculpture, yellow art sculpture, Marston sculpture, modern art on campus"),
+  item("blue-light-emergency-box", "Blue Light Emergency Box", "HACKATHON_CAMPUS", "EASY", "🛡️", "1f6e1", "shield", "blue light emergency box, campus safety box, emergency call box, blue light pole"),
+  item("bull-gator-statue", "Bull Gator Statue", "HACKATHON_CAMPUS", "HARD", "🐊", "1f9a6", "mountain", "Bull Gator statue, bronze gator, stadium gator statue, giant lizard statue"),
+  item("turlington-rock", "Turlington Hall Rock", "HACKATHON_CAMPUS", "HARD", "🪨", "1faa8", "mountain", "Turlington rock, the potato, limestone boulder, the giant rock in Turlington Plaza"),
+  item("gator-id-card", "Gator 1 Card", "HACKATHON_CAMPUS", "EASY", "🪪", "1faaa", "identification-card", "Gator 1 card, student ID, UF ID, campus badge, ID card"),
+  item("gator-gear", "Orange or Blue Gator Gear", "HACKATHON_CAMPUS", "EASY", "🎨", "1f3a8", "paint-palette", "orange shirt, blue hoodie, Gator apparel, UF colors clothing"),
+
   // --- HACKATHON / CAMPUS (28) ---
   item("headphones", "Headphones", "HACKATHON_CAMPUS", "EASY", "🎧", "1f3a7", "headphone", "over-ear headphones, earbuds, AirPods, wired earphones"),
   item("laptop-charger", "Laptop Charger", "HACKATHON_CAMPUS", "MEDIUM", "🔌", "1f50c", "electric-plug", "laptop power brick, MagSafe cable, USB-C laptop charger"),
