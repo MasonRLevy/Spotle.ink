@@ -7,7 +7,22 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import confetti from 'canvas-confetti';
-import { Clock, Crown, SwitchCamera, X } from 'lucide-react';
+import {
+  Award,
+  Bike,
+  Clock,
+  Crown,
+  Headphones,
+  IdCard,
+  KeyRound,
+  Laptop,
+  Milk,
+  ShieldAlert,
+  Sparkles,
+  SwitchCamera,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import spotleLogo from './assets/Spotle_Logo.png';
 import dogMouthClosed from './assets/Spot_mouth_closed.png';
 import dogMouthOpen from './assets/Spot_mouth_open.png';
@@ -22,7 +37,7 @@ import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
 import { ThemePicker } from './components/ThemePicker';
-import type { Player, RoundData } from '@shared/game';
+import type { GameMode, Player, RoundData } from '@shared/game';
 import { getTheme } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
@@ -38,6 +53,19 @@ type LobbyPoint = { x: number; y: number };
 type PawPrint = LobbyPoint & { id: number; angle: number };
 type PastChest = LobbyPoint & { id: number };
 type RouteMarker = LobbyPoint & { id: number; angle: number; distanceAlong: number };
+
+const targetIcons: Record<string, LucideIcon> = {
+  Award,
+  Bike,
+  Clock,
+  Headphones,
+  IdCard,
+  KeyRound,
+  Laptop,
+  Milk,
+  ShieldAlert,
+  Sparkles,
+};
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
@@ -954,7 +982,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={game.startGame}
-                disabled={players.length < 1}
+                disabled={players.length < (room!.settings.mode === 'ME' ? 2 : 1)}
                 className={`${lobbyButtonClass} relative z-50`}
               >
                 START GAME
@@ -962,12 +990,27 @@ useEffect(() => {
             ) : (
               <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
+            <div className="grid w-full grid-cols-2 gap-2">
+              {(['OBJECTS', 'ME'] as GameMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => game.setMode(mode)}
+                  disabled={!isHost || room!.settings.mode === mode}
+                  aria-pressed={room!.settings.mode === mode}
+                  className={`${lobbyButtonClass} ${room!.settings.mode === mode ? 'bg-spotle-coral text-spotle-navy' : ''} relative z-50`}
+                >
+                  {mode === 'OBJECTS' ? 'OBJECT HUNT' : 'ME HUNT'}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => setIsThemeModalOpen(true)}
+              disabled={room!.settings.mode === 'ME'}
               className={`${lobbyButtonClass} relative z-50`}
             >
-              {getTheme(room!.settings.theme)?.name ?? 'Themes'}
+              {room!.settings.mode === 'ME' ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
             </button>
             <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
@@ -983,6 +1026,45 @@ useEffect(() => {
           </div>
         </main>
       </div>
+    );
+  }
+
+  if (room!.status === 'SELFIE_REGISTRATION') {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-5 bg-spotle-cream p-6 text-center font-pixel text-spotle-navy">
+        <h1 className="text-3xl">Register Your Face</h1>
+        <p className="max-w-lg text-base">Take a live selfie so the referee can verify player hunts. Your image stays private to the game server.</p>
+        <div className="aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
+          <LobbyCamTile
+            stream={webrtc.localStream}
+            label={me?.name ?? 'You'}
+            mirrored={webrtc.facingMode === 'user'}
+            placeholder="Starting camera…"
+          />
+        </div>
+        {webrtc.error && <p className="text-sm text-red-700">{webrtc.error}</p>}
+        {game.error && <p className="text-sm text-red-700">{game.error}</p>}
+        {me?.selfieReady ? (
+          <p className="text-lg">Selfie registered. Waiting for the other players…</p>
+        ) : (
+          <button
+            type="button"
+            disabled={!webrtc.cameraReady}
+            onClick={() => {
+              try {
+                game.submitSelfie(webrtc.captureJpeg());
+            } catch (error) {
+                setCaptureError(error instanceof Error ? error.message : 'Could not capture a selfie.');
+              }
+            }}
+            className={arcadeButtonClass}
+          >
+            REGISTER SELFIE
+          </button>
+        )}
+        {captureError && <p className="text-sm text-red-700">{captureError}</p>}
+        <p className="text-sm">{players.filter((player) => player.selfieReady).length} / {players.length} ready</p>
+      </main>
     );
   }
 
@@ -1217,13 +1299,19 @@ function PlayerTile({
 
 function TargetPanel({ round }: { round: RoundData | null }) {
   if (!round) return null;
+  const image = round.targetPlayerSelfie
+    ?? (round.visualType === 'image' ? round.visualValue : undefined)
+    ?? round.targetIconUrl;
+  const TargetIcon = round.visualType === 'lucide' ? targetIcons[round.visualValue ?? ''] : undefined;
   return (
     <figure className="flex w-24 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-xs text-spotle-coral md:w-56 md:text-lg">
-      <img
-        src={round.targetIconUrl}
-        alt={round.targetObject}
-        className="aspect-square w-full bg-spotle-cream object-contain p-2"
-      />
+      {image ? (
+        <img src={image} alt={round.targetObject} className="aspect-square w-full bg-spotle-cream object-cover p-2" />
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center bg-spotle-cream text-5xl text-spotle-navy">
+          {TargetIcon ? <TargetIcon aria-hidden="true" size={56} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
+        </div>
+      )}
       <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
         {round.targetObject}
         {round.imageAttribution && (
@@ -1296,6 +1384,10 @@ function PlayingScreen({
   onGiveUp: () => void;
 }) {
   const hasTargetCell = players.length === 3;
+  const targetImage = round?.targetPlayerSelfie
+    ?? (round?.visualType === 'image' ? round.visualValue : undefined)
+    ?? round?.targetIconUrl;
+  const TargetIcon = round?.visualType === 'lucide' ? targetIcons[round.visualValue ?? ''] : undefined;
 
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
@@ -1311,11 +1403,13 @@ function PlayingScreen({
               >
                 {round && (
                   <>
-                    <img
-                      src={round.targetIconUrl}
-                      alt={round.targetObject}
-                      className="max-h-[72%] w-3/4 flex-1 object-contain"
-                    />
+                    {targetImage ? (
+                      <img src={targetImage} alt={round.targetObject} className="max-h-[72%] w-3/4 flex-1 object-contain" />
+                    ) : (
+                      <div className="flex max-h-[72%] flex-1 items-center justify-center text-6xl text-spotle-navy">
+                        {TargetIcon ? <TargetIcon aria-hidden="true" size={72} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
+                      </div>
+                    )}
                     <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
                       {round.targetObject}
                     </p>

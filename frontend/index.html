@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Fetched up-front so the real font is ready at first paint. Without
+         this the browser only discovers the font after parsing CSS, paints
+         the fallback, then swaps - the flash on refresh. -->
+    <link
+      rel="preload"
+      href="/src/assets/BoldsPixels.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
     <title>Spotle.ink</title>
   </head>
   <body>

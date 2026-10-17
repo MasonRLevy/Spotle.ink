@@ -1,4 +1,4 @@
-import { GAME_THEMES, type ThemeId } from '@shared/game';
+import { GAME_THEMES, type ThemeType } from '@shared/game';
 
 /**
  * Theme picker popup.
@@ -8,8 +8,8 @@ import { GAME_THEMES, type ThemeId } from '@shared/game';
  * that theme. Closes on the X, the Close button, the backdrop, or Escape.
  */
 interface ThemePickerProps {
-  selected: ThemeId | null;
-  onSelect: (theme: ThemeId | null) => void;
+  selected: ThemeType | null;
+  onSelect: (theme: ThemeType | null) => void;
   onClose: () => void;
 }
 

@@ -5,15 +5,16 @@
  * model from the Python `game_manager.py`, kept in the spec-shaped
  * `RoomState` from the Node `roomManager.js`.
  */
-import type { Player, RoomState, RoomStatus } from '../../shared/game.js';
+import type { GameMode, Player, RoomState, RoomStatus, ThemeType } from '../../shared/game.js';
 
 const rooms = new Map<string, RoomState>();
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: RoomState['settings'] = {
   maxPlayers: 4,
   totalRounds: 10,
   roundTimeLimitSec: 90,
-  theme: null,
+  mode: 'OBJECTS',
+  theme: 'GENERAL',
 };
 
 /** 6-digit numeric PIN, matching the join modal in the UI. */
@@ -25,13 +26,13 @@ export function generateUniquePin(): string {
   throw new Error('Could not allocate a free room PIN.');
 }
 
-export function createRoom(hostId: string, hostName: string): RoomState {
+export function createRoom(hostId: string, hostName: string, mode: GameMode = 'OBJECTS'): RoomState {
   const roomCode = generateUniquePin();
   const room: RoomState = {
     roomCode,
     hostId,
     status: 'LOBBY',
-    settings: { ...DEFAULT_SETTINGS },
+    settings: { ...DEFAULT_SETTINGS, mode },
     players: {
       [hostId]: makePlayer(hostId, hostName || 'Host', true),
     },
@@ -113,6 +114,16 @@ export function setStatus(room: RoomState, status: RoomStatus): void {
   room.status = status;
 }
 
+export function setMode(room: RoomState, mode: GameMode): void {
+  room.settings.mode = mode;
+  if (mode === 'ME') room.settings.theme = null;
+}
+
+export function setTheme(room: RoomState, theme: ThemeType | null): void {
+  room.settings.theme = theme;
+  if (theme !== null) room.settings.mode = 'OBJECTS';
+}
+
 export function playerList(room: RoomState): Player[] {
   return Object.values(room.players);
 }
@@ -123,7 +134,7 @@ export function serializeRoom(room: RoomState): RoomState {
     ...room,
     players: Object.fromEntries(
       Object.entries(room.players).map(([id, player]) => {
-        const { lastAttemptImage: _omit, ...rest } = player;
+        const { lastAttemptImage: _omit, selfieBase64: _omitSelfie, ...rest } = player;
         return [id, rest as Player];
       }),
     ),
@@ -140,5 +151,8 @@ export function resetForNewGame(room: RoomState): void {
     delete player.placement;
     delete player.reactionMs;
     delete player.lastAttemptImage;
+    delete player.selfieBase64;
+    delete player.selfieReady;
+    delete player.targetPlayerId;
   }
 }
