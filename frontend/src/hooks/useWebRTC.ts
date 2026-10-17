@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Peer, { type MediaConnection } from 'peerjs';
 import { captureVideoFrame } from '../utils/captureFrame';
 
@@ -51,7 +51,7 @@ export function useWebRTC(options: {
   const [error, setError] = useState<string | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
 
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoEl = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const callsRef = useRef<Map<string, MediaConnection>>(new Map());
@@ -68,12 +68,39 @@ export function useWebRTC(options: {
   localPlayerIdRef.current = localPlayerId;
 
   const attachLocalVideo = useCallback((stream: MediaStream) => {
-    const el = localVideoRef.current;
+    const el = localVideoEl.current;
     if (!el) return;
     if (el.srcObject !== stream) {
       el.srcObject = stream;
     }
   }, []);
+
+  /**
+   * Ref handed to the local <video>.
+   *
+   * It looks like a normal ref object, but assigning `.current` also attaches
+   * the live stream. That matters because the camera starts in the LOBBY,
+   * where no <video> is rendered yet: the stream arrives while the ref is
+   * still null, and nothing re-attached it when the game screen later mounted
+   * the element. The result was a black local tile until something called
+   * attachLocalVideo again - which is why hitting "flip camera" appeared to
+   * fix it. Attaching on mount removes the ordering problem entirely.
+   */
+  const localVideoRef = useMemo(
+    () => ({
+      get current(): HTMLVideoElement | null {
+        return localVideoEl.current;
+      },
+      set current(el: HTMLVideoElement | null) {
+        localVideoEl.current = el;
+        const stream = streamRef.current;
+        if (el && stream && el.srcObject !== stream) {
+          el.srcObject = stream;
+        }
+      },
+    }),
+    [],
+  );
 
   const replaceVideoTrackOnCalls = useCallback(async (newTrack: MediaStreamTrack) => {
     const replacements: Promise<void>[] = [];
@@ -323,7 +350,7 @@ export function useWebRTC(options: {
   }, [attachLocalVideo, isFlipping, replaceVideoTrackOnCalls]);
 
   const captureJpeg = useCallback(() => {
-    const video = localVideoRef.current;
+    const video = localVideoEl.current;
     if (!video) {
       throw new Error('Local video is not mounted.');
     }
