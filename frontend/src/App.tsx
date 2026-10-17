@@ -5,6 +5,7 @@ import {
   useState,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
+  type CSSProperties,
 } from 'react';
 import confetti from 'canvas-confetti';
 import {
@@ -1703,13 +1704,24 @@ function PlayerTile({
   );
 }
 
-function TargetBadge({ round, className }: { round: RoundData; className?: string }) {
+function TargetBadge({
+  round,
+  className,
+  style,
+}: {
+  round: RoundData;
+  className?: string;
+  style?: CSSProperties;
+}) {
   const isPlayerHunt = isPlayerHuntMode(round.mode);
   const targetName = isPlayerHunt
     ? round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')
     : round.targetObject;
   return (
-    <div className={className ?? 'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'}>
+    <div
+      className={className ?? 'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'}
+      style={style}
+    >
       <div className="mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 px-3 py-3 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4">
         <div className="my-1 flex min-h-20 items-center justify-center sm:min-h-24">
           {isPlayerHunt && round.targetPlayerSelfie ? (
@@ -1855,10 +1867,17 @@ function PlayingScreen({
         })}
       </div>
 
-  {round && !isHideAndSeek && players.length >= 3 && (
+      {round && !isHideAndSeek && players.length === 4 && (
         <TargetBadge
           round={round}
           className="pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem-var(--spotle-safe-area-bottom))/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
+        />
+      )}
+      {round && !isHideAndSeek && players.length === 3 && (
+        <TargetBadge
+          round={round}
+          className="pointer-events-none absolute right-4 z-50 w-24 max-w-full md:w-56"
+          style={{ bottom: 'calc(9rem + var(--spotle-safe-area-bottom))' }}
         />
       )}
       {round && !isHideAndSeek && players.length <= 2
@@ -1868,10 +1887,13 @@ function PlayingScreen({
         <TargetBadge
           round={round}
           className={`pointer-events-none absolute z-50 w-24 max-w-full md:w-56 ${
-            players.length === 2
-              ? 'bottom-[calc(9rem+var(--spotle-safe-area-bottom))] left-1/2 -translate-x-1/2'
-              : 'right-4 top-4'
+            players.length === 2 ? 'left-1/2 -translate-x-1/2' : 'right-4 top-4'
           }`}
+          style={
+            players.length === 2
+              ? { bottom: 'calc(9rem + var(--spotle-safe-area-bottom))' }
+              : undefined
+          }
         />
       )}
 
