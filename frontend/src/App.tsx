@@ -21,11 +21,7 @@ import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
-<<<<<<< HEAD
-import flashAudioSrc from './assets/sounds/cameraFlash8Bit.wav';
-=======
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
->>>>>>> 1897aa9ad35d62fc989c50b6aa433cf9f6ad0a26
 
 const maxPlayers = 4;
 const dogSpeed = 5;
@@ -89,6 +85,7 @@ export default function App() {
   const isHost = Boolean(me?.isHost);
   const round = game.round;
   const inRoom = Boolean(room);
+  const isHomeOrLobby = !inRoom || room?.status === 'LOBBY';
   const allPlayersSettled =
     players.length > 0
     && players.every((player) => player.status === 'FOUND' || player.status === 'SKIPPED');
@@ -184,7 +181,7 @@ export default function App() {
   }, [isTalking, refereeMessage]);
 
   useEffect(() => {
-    if (room?.status !== 'LOBBY') {
+    if (!isHomeOrLobby) {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -193,19 +190,21 @@ export default function App() {
     }
 
     const lobby = lobbyRef.current;
-    if (!lobby || dogPositionInitializedRef.current) return;
+    if (!lobby) return;
 
-    dogPositionRef.current = {
-      x: Math.min(100, lobby.clientWidth / 2),
-      y: Math.max(100, lobby.clientHeight - 120),
-    };
-    dogPositionInitializedRef.current = true;
+    if (!dogPositionInitializedRef.current) {
+      dogPositionRef.current = {
+        x: Math.min(100, lobby.clientWidth / 2),
+        y: Math.max(100, lobby.clientHeight - 120),
+      };
+      dogPositionInitializedRef.current = true;
+    }
+    const { x, y } = dogPositionRef.current;
     if (dogRef.current) {
-      const { x, y } = dogPositionRef.current;
       dogRef.current.style.transform =
         `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(1)`;
     }
-  }, [room?.status]);
+  }, [isHomeOrLobby]);
 
   useEffect(
     () => () => {
@@ -385,6 +384,67 @@ export default function App() {
     animationFrameRef.current = window.requestAnimationFrame(animateDog);
   }
 
+  function renderInkMiniGame() {
+    return (
+      <>
+        {pawPrints.map((paw) => (
+          <img
+            key={paw.id}
+            src={inkPaw}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-screen"
+            style={{
+              left: paw.x,
+              top: paw.y,
+              transform: `translate(-50%, -50%) rotate(${paw.angle}deg)`,
+            }}
+          />
+        ))}
+
+        {targetPosition && (
+          <>
+            <img
+              src={xMarksTheSpot}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 h-14 w-14 select-none object-contain mix-blend-screen md:h-16 md:w-16"
+              style={{
+                left: targetPosition.x,
+                top: targetPosition.y,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+            {showTreasureChest && (
+              <img
+                src={treasureChest}
+                alt=""
+                aria-hidden="true"
+                className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-screen md:h-32 md:w-32"
+                style={{
+                  left: targetPosition.x,
+                  top: targetPosition.y,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              />
+            )}
+          </>
+        )}
+
+        <img
+          ref={dogRef}
+          src={inkRunning}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain mix-blend-screen"
+          style={{
+            transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(1)`,
+          }}
+        />
+      </>
+    );
+  }
+
   function leaveGame() {
     window.location.reload();
   }
@@ -392,8 +452,13 @@ export default function App() {
   /* ----------------------------- LANDING ----------------------------- */
   if (!inRoom) {
     return (
-      <div className="min-h-screen bg-spotle-cream font-pixel text-spotle-navy">
-        <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
+      <div
+        ref={lobbyRef}
+        onClick={handleLobbyClick}
+        className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
+      >
+        {renderInkMiniGame()}
+        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-5">
               <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
@@ -436,7 +501,7 @@ export default function App() {
         </main>
 
         {isJoinModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-spotle-navy/70 p-6">
+          <div data-lobby-ui className="fixed inset-0 z-50 flex items-center justify-center bg-spotle-navy/70 p-6">
             <form
               onSubmit={submitJoinGame}
               className="w-full max-w-md rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-8 text-center"
@@ -489,57 +554,7 @@ export default function App() {
         onClick={handleLobbyClick}
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        {pawPrints.map((paw) => (
-          <img
-            key={paw.id}
-            src={inkPaw}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-screen"
-            style={{
-              left: paw.x,
-              top: paw.y,
-              transform: `translate(-50%, -50%) rotate(${paw.angle}deg)`,
-            }}
-          />
-        ))}
-
-        {targetPosition && (
-          <>
-            <img
-              src={xMarksTheSpot}
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute z-10 h-14 w-14 select-none object-contain mix-blend-screen md:h-16 md:w-16"
-              style={{
-                left: targetPosition.x,
-                top: targetPosition.y,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
-            {showTreasureChest && (
-              <img
-                src={treasureChest}
-                alt=""
-                aria-hidden="true"
-                className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-screen md:h-32 md:w-32"
-                style={{
-                  left: targetPosition.x,
-                  top: targetPosition.y,
-                  transform: 'translate(-50%, -50%)',
-                }}
-              />
-            )}
-          </>
-        )}
-
-        <img
-          ref={dogRef}
-          src={inkRunning}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain mix-blend-screen"
-        />
+        {renderInkMiniGame()}
 
         <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
