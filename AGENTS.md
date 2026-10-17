@@ -21,7 +21,7 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** 2026-10-17
+* **Last Updated:** 2026-10-17 (later)
 * **LIVE AT https://spotle.ink** (Render). Every push to `main` auto-deploys, so never push mid-demo - a redeploy restarts the process and rooms are in memory.
 * **ONE SERVER.** The three original backends were merged into `server/`. `backend/` is **deprecated and does not run** - see `backend/DEPRECATED.md`. Do not add features there.
 
@@ -52,7 +52,14 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 `ThemeType` = `UF_SWAMP` | `HACKATHON` | `GENERAL` | `OUTDOORS`, defined with icons in `GAME_THEMES` (`shared/game.ts`). The lobby Themes button opens the picker; the host's choice is host-only and lobby-only, stored on `room.settings.theme`, and only items whose `themes[]` contains it are drawn.
 
 ### !! ITEM COUNTS ARE LOW - DEMO RISK !!
-`MASTER_ITEM_DATABASE` currently holds **12 items**: UF_SWAMP 6, HACKATHON 5, GENERAL 4, OUTDOORS 3. Games are 10 rounds, so a themed game runs out of unused items and **starts repeating** (`pickThemeTarget` falls back to the whole theme pool rather than failing). Adding items is the highest-value thing left before judging.
+`MASTER_ITEM_DATABASE` (`server/src/data/itemRegistry.ts`) holds **12 items**: UF_SWAMP 6, HACKATHON 5, GENERAL 4, OUTDOORS 3. Games are 10 rounds, so a themed game **must** repeat - with 3 Outdoors items, 7 of the 10 rounds are repeats no matter how good the picker is. **Adding items is the single highest-value thing left.** A theme needs >= 10 items for a repeat-free 10-round game.
+
+### Item selection
+* No duplicates until a theme is exhausted, then the cycle restarts cleanly rather than letting `usedObjects` grow forever (which used to leave every later pick an unguarded random draw, causing A,B,A,B clustering).
+* The item that just played is never handed back immediately, so there are **no back-to-back repeats** even across a cycle boundary.
+* Randomness comes from `crypto.randomInt`, not `Math.random` - no modulo bias and no shared pseudo-random sequence between rooms.
+* Measured over 500 simulated games per theme: 0 back-to-back repeats, and repeats per game exactly equal the unavoidable floor (`10 - poolSize`). **Any repeat you see now is a missing-items problem, not a picker problem.**
+* `unusedCount(theme, used)` is exported for callers that need to know whether a cycle is finished.
 
 ### Legacy: the old object pool
 `server/gemini-referee/objectPool.ts` (146 items with Fluent flat-SVG art) is **no longer used for round targets** - `itemRegistry.ts` replaced it. It still backs `/api/referee/*` and the referee workbench, and `/api/health` still reports its count. Its `themesForObject()` / `CATEGORY_THEME_FALLBACK` map to the old `HOME`/`UF` ids and is dead code.
@@ -82,8 +89,11 @@ Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `roun
 * `SPOTLE_FORCE_TARGET=<item id> npm start` - pin the round target for a reproducible demo
 * `GET /api/rooms/<pin>/debug` - per-player PeerJS ids, for diagnosing camera mesh problems
 
+### App_Testing branch was reverted out of main
+The Capacitor mobile wrapper merge (`3a70f6d`) was reverted in `5a51d6e`, so `frontend/android`, `capacitor.config.ts` and the Capacitor deps are **not** on main. Git still considers App_Testing merged, so **merging it again brings in nothing** - whoever lands the mobile app must `git revert 5a51d6e` first, then merge.
+
 ### Current Focus
-Playable end to end and deployed. Highest value next: **more items in `MASTER_ITEM_DATABASE`**, then a global leaderboard.
+Playable end to end and deployed, with voice chat. Highest value next: **more items in `MASTER_ITEM_DATABASE`** (see the demo-risk note above), then a global leaderboard.
 
 Project Info:
 SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)

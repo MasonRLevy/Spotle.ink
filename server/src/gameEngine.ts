@@ -13,7 +13,7 @@ import type {
 } from '../../shared/game.js';
 import { isHideAndSeekMode, isPlayerHuntMode, pointsForPlacement } from '../../shared/game.js';
 import { verifyHideAndSeekTag, verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
-import { MASTER_ITEM_DATABASE, pickRoundTarget } from './data/itemRegistry.js';
+import { MASTER_ITEM_DATABASE, pickRoundTarget, unusedCount } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
 
 type GameServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -232,6 +232,14 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
   const forced = forcedId
     ? MASTER_ITEM_DATABASE.find((item) => item.id === forcedId)
     : undefined;
+  // Once every item in the theme has played, start a fresh cycle instead of
+  // letting usedObjects grow forever. Without this, every pick after
+  // exhaustion is an unguarded random draw and you get A,B,A,B clustering.
+  // Keeping the most recent id stops the new cycle repeating it back-to-back.
+  if (unusedCount(theme, room.usedObjects) === 0 && room.usedObjects.length > 0) {
+    room.usedObjects = room.usedObjects.slice(-1);
+  }
+
   const pick = forced ?? pickRoundTarget(room.usedObjects, theme);
 
   const round: RoundData = {

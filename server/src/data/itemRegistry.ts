@@ -1,4 +1,5 @@
 import type { ScavengerItem, ThemeType } from '../../../shared/game.js';
+import { randomInt } from 'node:crypto';
 
 export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
   {
@@ -111,19 +112,48 @@ export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
   },
 ];
 
+/**
+ * Unbiased random index backed by the crypto RNG.
+ *
+ * `Math.floor(Math.random() * n)` is fine statistically, but randomInt draws
+ * from the OS entropy source and is rejection-sampled, so there is no modulo
+ * bias and no shared pseudo-random sequence across rooms.
+ */
+function randomIndex(length: number): number {
+  return length <= 1 ? 0 : randomInt(length);
+}
+
+function pickFrom(pool: ScavengerItem[], usedObjectIds: string[]): ScavengerItem {
+  const unused = pool.filter((item) => !usedObjectIds.includes(item.id));
+  if (unused.length > 0) return unused[randomIndex(unused.length)]!;
+
+  // Theme exhausted. Start a fresh cycle, but never hand back the item that
+  // just played - a back-to-back repeat is the one that really looks broken.
+  const last = usedObjectIds[usedObjectIds.length - 1];
+  const avoidLast = pool.filter((item) => item.id !== last);
+  const recycled = avoidLast.length > 0 ? avoidLast : pool;
+  return recycled[randomIndex(recycled.length)]!;
+}
+
+export function itemsForTheme(theme: ThemeType): ScavengerItem[] {
+  return MASTER_ITEM_DATABASE.filter((item) => item.themes.includes(theme));
+}
+
+/** How many items are still unplayed, so the caller can start a new cycle. */
+export function unusedCount(theme: ThemeType | null, usedObjectIds: string[]): number {
+  const pool = theme ? itemsForTheme(theme) : MASTER_ITEM_DATABASE;
+  return pool.filter((item) => !usedObjectIds.includes(item.id)).length;
+}
+
 export function pickThemeTarget(theme: ThemeType, usedObjectIds: string[] = []): ScavengerItem {
-  const eligible = MASTER_ITEM_DATABASE.filter(
-    (item) => item.themes.includes(theme) && !usedObjectIds.includes(item.id),
-  );
-  const pool = eligible.length > 0 ? eligible : MASTER_ITEM_DATABASE.filter((item) => item.themes.includes(theme));
-  return pool[Math.floor(Math.random() * pool.length)] ?? MASTER_ITEM_DATABASE[0]!;
+  const pool = itemsForTheme(theme);
+  if (pool.length === 0) return MASTER_ITEM_DATABASE[randomIndex(MASTER_ITEM_DATABASE.length)]!;
+  return pickFrom(pool, usedObjectIds);
 }
 
 /** No theme selected: draw from the whole database rather than a default theme. */
 export function pickAnyTarget(usedObjectIds: string[] = []): ScavengerItem {
-  const eligible = MASTER_ITEM_DATABASE.filter((item) => !usedObjectIds.includes(item.id));
-  const pool = eligible.length > 0 ? eligible : MASTER_ITEM_DATABASE;
-  return pool[Math.floor(Math.random() * pool.length)] ?? MASTER_ITEM_DATABASE[0]!;
+  return pickFrom(MASTER_ITEM_DATABASE, usedObjectIds);
 }
 
 export function pickRoundTarget(usedObjectIds: string[] = [], theme: ThemeType | null = null): ScavengerItem {
