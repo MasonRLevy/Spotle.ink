@@ -34,6 +34,7 @@ import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
+import { EmojiDisplay } from './components/EmojiDisplay';
 import { ThemePicker } from './components/ThemePicker';
 import type { GameMode, Player, RoundData } from '@shared/game';
 import { getTheme } from '@shared/game';
@@ -208,6 +209,7 @@ useEffect(() => {
     localPlayerId: game.playerId ?? 'local',
     remotePeers,
     onLocalPeerId: game.registerPeerId,
+    voiceEnabled: !voiceChatMuted,
   });
 
   useEffect(() => {
@@ -218,22 +220,8 @@ useEffect(() => {
     wrongAudio.current.muted = muted;
   }, [soundEffectsMuted]);
 
-  /**
-   * Settings -> "Voice chat" controls INCOMING audio only (whether you hear
-   * other players).
-   *
-   * It must not touch the local mic track: that is owned by useWebRTC's
-   * toggleMic, behind the mic button on your own name. This effect re-runs
-   * whenever remoteMedia changes, so including the local stream here would
-   * silently un-mute your mic every time somebody joined or left.
-   */
-  useEffect(() => {
-    Object.values(webrtc.remoteMedia).forEach((media) => {
-      media.stream.getAudioTracks().forEach((track) => {
-        track.enabled = !voiceChatMuted;
-      });
-    });
-  }, [voiceChatMuted, webrtc.remoteMedia]);
+  // Audio track state lives in useWebRTC, which applies both the master
+  // voice switch and the per-user mic preference in one place.
 
   useEffect(() => {
     if (soundEffectsMuted) {
@@ -897,7 +885,7 @@ useEffect(() => {
           className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
         >
           <div
-            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            className="absolute inset-0 bg-repeat opacity-[0.15]"
             style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
           />
           <img
@@ -914,11 +902,11 @@ useEffect(() => {
             alt=""
             aria-hidden="true"
             onLoad={initializeDogNearHouse}
-            className="absolute bottom-4 left-2 z-10 h-auto w-72 select-none object-contain mix-blend-multiply md:hidden"
+            className="absolute left-1/2 top-3 z-10 h-auto w-72 -translate-x-1/2 select-none object-contain mix-blend-multiply md:hidden"
           />
           {renderInkMiniGame()}
         </div>
-        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 text-center sm:gap-8 sm:p-6">
+        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 pt-36 text-center sm:gap-8 sm:p-6 sm:pt-6">
           <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
               <img src={spotleLogo} alt="Spotle" className="relative top-2 w-full max-w-md" />
@@ -1134,7 +1122,7 @@ useEffect(() => {
           className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
         >
           <div
-            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            className="absolute inset-0 bg-repeat opacity-[0.15]"
             style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
           />
         </div>
@@ -1167,9 +1155,9 @@ useEffect(() => {
                         label={`${player.name}${player.isHost ? ' (Host)' : ''}`}
                         mirrored={player.id === game.playerId && webrtc.facingMode === 'user'}
                         isLocal={player.id === game.playerId}
-                        micEnabled={webrtc.micEnabled}
+                        micEnabled={webrtc.micActive}
                         onToggleMic={
-                          player.id === game.playerId && webrtc.micAvailable
+                          player.id === game.playerId && webrtc.micAvailable && !voiceChatMuted
                             ? webrtc.toggleMic
                             : undefined
                         }
@@ -1353,8 +1341,8 @@ useEffect(() => {
       facingMode={webrtc.facingMode}
       isFlipping={webrtc.isFlipping}
       onFlipCamera={webrtc.flipCamera}
-      micEnabled={webrtc.micEnabled}
-      onToggleMic={webrtc.micAvailable ? webrtc.toggleMic : undefined}
+      micEnabled={webrtc.micActive}
+      onToggleMic={webrtc.micAvailable && !voiceChatMuted ? webrtc.toggleMic : undefined}
       onFoundIt={handleFoundIt}
       onGiveUp={handleGiveUp}
     />
@@ -1475,13 +1463,26 @@ function PlayerTile({
         </div>
       )}
 
-      {isLocal && onToggleMic ? (
+      {isLocal ? (
         <button
           type="button"
           onClick={onToggleMic}
+          disabled={!onToggleMic}
           aria-pressed={!micEnabled}
-          aria-label={micEnabled ? 'Mute your microphone' : 'Unmute your microphone'}
-          title={micEnabled ? 'Click to mute your mic' : 'Click to unmute your mic'}
+          aria-label={
+            !onToggleMic
+              ? 'Microphone off - voice chat is disabled in Settings'
+              : micEnabled
+                ? 'Mute your microphone'
+                : 'Unmute your microphone'
+          }
+          title={
+            !onToggleMic
+              ? 'Voice chat is off in Settings'
+              : micEnabled
+                ? 'Click to mute your mic'
+                : 'Click to unmute your mic'
+          }
           className={`absolute top-2 z-20 flex max-w-[calc(100%-1rem)] items-center gap-2 truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy transition-transform active:scale-95 md:text-2xl ${
             nameOnRight ? 'right-2' : 'left-2'
           }`}
@@ -1555,40 +1556,65 @@ function PlayerTile({
   );
 }
 
-function TargetPanel({ round }: { round: RoundData | null }) {
-  if (!round) return null;
+function TargetBadgeCard({ round, inGrid = false }: { round: RoundData; inGrid?: boolean }) {
   const isPlayerHunt = round.mode === 'ME';
-  const targetName = round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '');
-  const label = isPlayerHunt ? `HUNT: ${targetName}` : round.targetObject;
-  const image = round.targetPlayerSelfie;
+  const targetName = isPlayerHunt
+    ? round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')
+    : round.targetObject;
   return (
-    <figure className={`flex w-24 max-w-full flex-col items-center text-center text-xs md:w-56 md:text-lg ${isPlayerHunt ? 'gap-2' : 'overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-spotle-coral'}`}>
-      {image ? (
-        <img
-          src={image}
-          alt={round.targetObject}
-          className={`aspect-square w-full object-cover ${isPlayerHunt ? 'rounded-full border-4 border-red-600 bg-spotle-cream p-1 shadow-[0_0_18px_rgba(220,38,38,0.8)] animate-pulse' : 'bg-spotle-cream p-2'}`}
-        />
-      ) : (
-        <div className="flex aspect-square w-full items-center justify-center bg-spotle-cream text-5xl text-spotle-navy">
-          {round.emoji ?? '🎯'}
+    <div
+      className={`mx-auto flex flex-col items-center justify-center text-center text-spotle-coral ${
+        inGrid
+          ? 'h-full w-full rounded-xl bg-spotle-navy/90 px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.55)] sm:px-4'
+          : 'rounded-2xl bg-spotle-navy/90 px-3 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4'
+      }`}
+    >
+        <div className={`my-1 flex min-h-20 items-center justify-center sm:min-h-24 ${inGrid ? 'min-h-0 flex-1' : ''}`}>
+          {isPlayerHunt && round.targetPlayerSelfie ? (
+            <img
+              src={round.targetPlayerSelfie}
+              alt={`Target player ${targetName}`}
+              className="h-20 w-20 animate-pulse rounded-full object-cover shadow-[0_0_20px_rgba(220,38,38,0.8)] sm:h-24 sm:w-24"
+            />
+          ) : (
+            <EmojiDisplay
+              emoji={round.emoji}
+              name={targetName}
+              className={inGrid ? 'h-16 w-16 sm:h-28 sm:w-28' : undefined}
+            />
+          )}
         </div>
-      )}
-      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
-        {label}
+        <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-spotle-coral sm:text-xs">
+          {isPlayerHunt ? 'Hunt Player' : 'Target Item'}
+        </span>
+        <h2 className="mt-0.5 max-w-full break-words px-2 text-sm font-extrabold leading-snug text-white drop-shadow-sm sm:text-lg">
+          {targetName}
+        </h2>
         {round.imageAttribution && (
-          <span className="mt-1 block text-[9px] leading-tight md:text-xs">
-            Photo:{" "}
+          <span className="mt-1 block text-[9px] leading-tight sm:text-xs">
+            Photo:{' '}
             <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
               {round.imageAttribution.author}, {round.imageAttribution.license}
-            </a>{" "}
+            </a>{' '}
             <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
               license
             </a>
           </span>
         )}
-      </figcaption>
-    </figure>
+    </div>
+  );
+}
+
+function TargetBadge({ round, className }: { round: RoundData; className?: string }) {
+  return (
+    <div
+      className={
+        className ??
+        'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'
+      }
+    >
+      <TargetBadgeCard round={round} />
+    </div>
   );
 }
 
@@ -1650,8 +1676,6 @@ function PlayingScreen({
   onGiveUp: () => void;
 }) {
   const hasTargetCell = players.length === 3;
-  const targetImage = round?.targetPlayerSelfie;
-
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
       <div
@@ -1664,33 +1688,7 @@ function PlayingScreen({
                 key="target-cell"
                 className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-2 border-2 border-spotle-cream bg-spotle-cream p-3 text-center text-lg text-spotle-navy md:text-2xl"
               >
-                {round && (
-                  <>
-                    {targetImage ? (
-                      <img src={targetImage} alt={round.targetObject} className="max-h-[72%] w-3/4 flex-1 object-contain" />
-                    ) : (
-                      <div className="flex max-h-[72%] flex-1 items-center justify-center text-6xl text-spotle-navy">
-                        {round.emoji ?? '🎯'}
-                      </div>
-                    )}
-                    <p className={`max-w-full rounded-full px-5 py-3 ${round.mode === 'ME' ? 'bg-red-700 text-white' : 'bg-spotle-navy text-spotle-coral'}`}>
-                      {round.mode === 'ME'
-                        ? `HUNT: ${round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')}`
-                        : round.targetObject}
-                    </p>
-                    {round.imageAttribution && (
-                      <p className="max-w-full text-xs leading-tight">
-                        Photo:{" "}
-                        <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
-                          {round.imageAttribution.author}, {round.imageAttribution.license}
-                        </a>{" "}
-                        <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
-                          license
-                        </a>
-                      </p>
-                    )}
-                  </>
-                )}
+                {round && <TargetBadgeCard round={round} inGrid />}
               </div>
             );
           }
@@ -1733,25 +1731,20 @@ function PlayingScreen({
         })}
       </div>
 
-      {players.length >= 3 && players.length === maxPlayers && (
-        <div         className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-8rem)/2)] z-50 flex -translate-y-1/2 justify-center">
-          <TargetPanel round={round} />
-        </div>
-      )}
+      {round && players.length >= 4 && <TargetBadge round={round} />}
 
-      {players.length <= 2
+      {round && players.length <= 2
         && !refereeMessage
         && !captureError
         && !players.some((player) => player.status === 'VERIFYING') && (
-        <div
-          className={`pointer-events-none absolute z-50 ${
+        <TargetBadge
+          round={round}
+          className={`pointer-events-none absolute z-50 w-24 max-w-full md:w-56 ${
             players.length === 2
               ? 'bottom-[calc(9rem+var(--spotle-safe-area-bottom))] left-1/2 -translate-x-1/2'
               : 'right-4 top-4'
           }`}
-        >
-          <TargetPanel round={round} />
-        </div>
+        />
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-4 z-40 flex justify-center px-4">
