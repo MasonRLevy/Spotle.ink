@@ -28,6 +28,10 @@ function stopStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+function hasMediaSupport() {
+  return !!navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function';
+}
+
 /**
  * PeerJS mesh (2–4 players) + a single local camera track.
  *
@@ -51,6 +55,7 @@ export function useWebRTC(options: {
   const [error, setError] = useState<string | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
 
+  const remoteMediaRef = useRef<Record<string, RemoteMedia>>({});
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -63,6 +68,7 @@ export function useWebRTC(options: {
   const fallbackTimersRef = useRef<number[]>([]);
 
   remotePeersRef.current = remotePeers;
+  remoteMediaRef.current = remoteMedia;
   onPeerIdRef.current = onLocalPeerId;
   localNameRef.current = localName;
   localPlayerIdRef.current = localPlayerId;
@@ -105,6 +111,8 @@ export function useWebRTC(options: {
     callsRef.current.get(peerId)?.close();
     callsRef.current.delete(peerId);
     setRemoteMedia((prev) => {
+      const existing = prev[peerId]?.stream;
+      if (existing) stopStream(existing);
       if (!(peerId in prev)) return prev;
       const next = { ...prev };
       delete next[peerId];
@@ -160,7 +168,7 @@ export function useWebRTC(options: {
     async function start() {
       setError(null);
 
-      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      if (!hasMediaSupport()) {
         setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
         return;
       }
@@ -244,6 +252,8 @@ export function useWebRTC(options: {
       streamRef.current = null;
       setLocalStream(null);
       setLocalPeerId(null);
+      Object.values(remoteMediaRef.current).forEach(({ stream }) => stopStream(stream));
+      remoteMediaRef.current = {};
       setRemoteMedia({});
     };
   }, [enabled, attachLocalVideo, bindCall, callRemoteIfNeeded]);
@@ -265,7 +275,7 @@ export function useWebRTC(options: {
     const current = streamRef.current;
     if (!current || isFlipping) return;
 
-    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    if (!hasMediaSupport()) {
       setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
       return;
     }
