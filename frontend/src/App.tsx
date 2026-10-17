@@ -193,7 +193,7 @@ export default function App() {
 
   function handleGiveUp() {
     if (
-      elapsedSeconds < 30
+      room?.status !== 'HUNTING'
       || !game.playerId
       || !me
       || me.status === 'FOUND'
@@ -430,6 +430,7 @@ function PlayerTile({
   stream,
   facingMode,
   showCrown,
+  isFlashing,
   nameOnRight,
   isSkipped,
   refereeMessage,
@@ -444,6 +445,7 @@ function PlayerTile({
   stream: MediaStream | undefined;
   facingMode: 'user' | 'environment';
   showCrown: boolean;
+  isFlashing: boolean;
   nameOnRight: boolean;
   isSkipped: boolean;
   refereeMessage: string | null;
@@ -486,7 +488,7 @@ function PlayerTile({
     <section
       className={`relative min-h-0 min-w-0 overflow-hidden border-2 border-spotle-cream bg-spotle-navy ${
         showCrown
-          ? 'z-10 border-8 border-green-400 shadow-[0_0_28px_#4ade80,inset_0_0_18px_#4ade80]'
+          ? 'z-10 border-[12px] border-green-500 shadow-[0_0_28px_#4ade80,inset_0_0_18px_#4ade80]'
           : ''
       }`}
       aria-label={`${player.name} video feed`}
@@ -507,6 +509,10 @@ function PlayerTile({
           className="h-full w-full object-cover"
         />
       ) : null}
+
+      {isFlashing && (
+        <div className="pointer-events-none absolute inset-0 z-[1] animate-flash" />
+      )}
 
       {isLocal && !localStream && (
         <div className="absolute inset-0 flex items-center justify-center text-lg text-spotle-coral">
@@ -540,7 +546,7 @@ function PlayerTile({
 
       {statusOverlay && (
         <div
-          className="absolute inset-0 z-0 flex items-center justify-center bg-spotle-navy/80"
+          className="absolute inset-0 z-[1] flex items-center justify-center bg-spotle-navy/80"
           role="status"
         >
           <p className="rounded-full border-4 border-spotle-cream bg-spotle-coral px-5 py-4 text-center text-xl text-spotle-navy md:text-2xl">
@@ -550,7 +556,7 @@ function PlayerTile({
       )}
 
       {isSkipped && (
-        <div className="absolute inset-0 z-0 flex items-center justify-center bg-spotle-navy/75" role="status">
+        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-spotle-navy/75" role="status">
           <p className="border-4 border-red-600 bg-spotle-cream px-5 py-4 text-center text-2xl text-red-700 md:text-4xl">
             SKIPPED
           </p>
@@ -691,6 +697,7 @@ function PlayingScreen({
               }
               facingMode={facingMode}
               showCrown={player.placement === 1 && refereePlayerId !== player.id}
+              isFlashing={flashing && isLocal}
               nameOnRight={
                 (players.length === 2 && index === 1)
                 || (players.length >= 3 && (index === 1 || index === 3))
@@ -710,7 +717,7 @@ function PlayingScreen({
       </div>
 
       {players.length >= 3 && players.length === maxPlayers && (
-        <div className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-8rem)/2)] z-20 flex -translate-y-1/2 justify-center">
+        <div         className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-8rem)/2)] z-50 flex -translate-y-1/2 justify-center">
           <TargetPanel round={round} />
         </div>
       )}
@@ -730,7 +737,7 @@ function PlayingScreen({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
+      <div className="pointer-events-none absolute inset-x-0 top-4 z-40 flex justify-center px-4">
         <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-3 py-2 text-center text-sm text-spotle-navy md:px-8 md:py-3 md:text-4xl">
           ROUND {round?.roundNumber ?? 1} / {totalRounds}
         </div>
@@ -785,8 +792,6 @@ function PlayingScreen({
           <span className="min-w-[4ch]">{formatTime(elapsedSeconds)}</span>
         </div>
       </nav>
-
-      {flashing && <div className="pointer-events-none fixed inset-0 z-40 animate-flash" />}
 
       {isCountdown && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-spotle-navy/85">
