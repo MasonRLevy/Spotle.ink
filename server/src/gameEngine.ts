@@ -167,8 +167,13 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
 
   const theme = room.settings.theme ?? 'GENERAL';
   const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
-  const pick = (forcedId && MASTER_ITEM_DATABASE.find((item) => item.id === forcedId))
-    ?? pickThemeTarget(theme, room.usedObjects);
+  // Resolve the override separately: `(forcedId && find(...)) ?? fallback`
+  // yields '' when the env var is set but empty, because ?? only catches
+  // null/undefined - which then blew up on pick.id.
+  const forced = forcedId
+    ? MASTER_ITEM_DATABASE.find((item) => item.id === forcedId)
+    : undefined;
+  const pick = forced ?? pickThemeTarget(theme, room.usedObjects);
 
   const round: RoundData = {
     roundNumber,

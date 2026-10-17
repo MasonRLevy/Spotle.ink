@@ -10,8 +10,8 @@
 * **Backend:** Node.js + Express. 
 * **Real-Time Sync:** Socket.io for game state.
 * **Video Streaming:** PeerJS for WebRTC mesh networking (2-4 players).
-* **AI Engine:** @google/genai SDK (Model: gemini-2.5-flash).
-* **Single Source of Truth:** All shared types (RoomState, Player, VerificationResponse) live in `client/src/types/game.ts`. Do not duplicate type definitions.
+* **AI Engine:** @google/genai SDK. Model: **`gemini-3.1-flash-lite`** (see the model note below - `gemini-2.5-flash` is dead).
+* **Single Source of Truth:** All shared types live in **`shared/game.ts`** at the repo root, imported by BOTH server and frontend (frontend via the `@shared` Vite alias). `frontend/src/types/game.ts` only re-exports it. Do not duplicate type definitions.
 
 ## Critical Gotchas & Anti-Patterns
 * **CAMERA FREEZE AVOIDANCE:** Never write code that requests a second `getUserMedia()` stream while a WebRTC video track is active. Mobile browsers will crash. 
@@ -21,61 +21,69 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** 2026-10-17 — THE BIG MERGE (all four roles combined)
-* **ONE SERVER NOW.** The three separate backends have been merged into `server/`. `backend/` is **deprecated and no longer runs** — see `backend/DEPRECATED.md` for where each file went. Do not add features to `backend/`.
+* **Last Updated:** 2026-10-17
+* **LIVE AT https://spotle.ink** (Render). Every push to `main` auto-deploys, so never push mid-demo - a redeploy restarts the process and rooms are in memory.
+* **ONE SERVER.** The three original backends were merged into `server/`. `backend/` is **deprecated and does not run** - see `backend/DEPRECATED.md`. Do not add features there.
 
-### How to run the game
+### How to run
 ```bash
-cd server   && npm install && npm start     # unified server  :3001
-cd frontend && npm install && npm run dev   # UI              :5173
+cd server   && npm install && npm start     # unified server :3001 (serves the built UI too)
+cd frontend && npm install && npm run dev   # UI dev server  :5173
 ```
-Open http://localhost:5173 — Create Game gives a 6-digit PIN, others Join with it, host presses START GAME.
-Camera needs `localhost` or HTTPS; for phones use `ngrok http 5173`.
+Create Game gives a **6-digit PIN**; others Join with it; host presses START GAME.
+Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 
-### Architecture (single source of truth)
-* `shared/game.ts` — **LOCKED type contract, imported by BOTH server and frontend.** Frontend reaches it via the `@shared` Vite alias; `frontend/src/types/game.ts` just re-exports it. Change types here and nowhere else.
-* `server/src/index.ts` — Express + Socket.io + referee, one process.
-* `server/src/rooms.ts` — room registry, 6-digit PINs, host promotion.
-* `server/src/gameEngine.ts` — round loop, Gemini verification, placement scoring.
-* `server/gemini-referee/` — AI referee + 74-object pool (Role 4, unchanged).
-* `frontend/src/hooks/useGameSocket.ts` — all room/round networking.
-* `frontend/src/hooks/useWebRTC.ts` — PeerJS mesh, camera flip, frame capture (Role 2).
+### Architecture
+* `shared/game.ts` - **LOCKED type contract**, imported by server and frontend. Change types here and nowhere else.
+* `server/src/index.ts` - Express + Socket.io + referee, one process, also serves `frontend/dist`.
+* `server/src/rooms.ts` - room registry, 6-digit PINs, host promotion, mode/theme setters.
+* `server/src/gameEngine.ts` - round loop, Gemini verification, placement scoring, selfie registration.
+* `server/src/data/itemRegistry.ts` - **`MASTER_ITEM_DATABASE`: where round targets come from.**
+* `server/gemini-referee/` - Gemini referee (prompts, vision, anti-cheat).
+* `frontend/src/hooks/useGameSocket.ts` - all room/round networking.
+* `frontend/src/hooks/useWebRTC.ts` - PeerJS mesh, camera flip, frame capture.
+* `frontend/src/components/` - `LobbyCamTile` (lobby feeds), `ThemePicker` (theme popup).
+
+### Game modes
+* **OBJECTS** - find the named item. Target drawn from `MASTER_ITEM_DATABASE`, filtered by theme.
+* **ME** - find a *player*. Everyone submits a selfie during `SELFIE_REGISTRATION` (30s), then hunts the assigned person.
+
+### Themes
+`ThemeType` = `UF_SWAMP` | `HACKATHON` | `GENERAL` | `OUTDOORS`, defined with icons in `GAME_THEMES` (`shared/game.ts`). The lobby Themes button opens the picker; the host's choice is host-only and lobby-only, stored on `room.settings.theme`, and only items whose `themes[]` contains it are drawn.
+
+### !! ITEM COUNTS ARE LOW - DEMO RISK !!
+`MASTER_ITEM_DATABASE` currently holds **12 items**: UF_SWAMP 6, HACKATHON 5, GENERAL 4, OUTDOORS 3. Games are 10 rounds, so a themed game runs out of unused items and **starts repeating** (`pickThemeTarget` falls back to the whole theme pool rather than failing). Adding items is the highest-value thing left before judging.
+
+### Legacy: the old object pool
+`server/gemini-referee/objectPool.ts` (146 items with Fluent flat-SVG art) is **no longer used for round targets** - `itemRegistry.ts` replaced it. It still backs `/api/referee/*` and the referee workbench, and `/api/health` still reports its count. Its `themesForObject()` / `CATEGORY_THEME_FALLBACK` map to the old `HOME`/`UF` ids and is dead code.
 
 ### Game rules as implemented
-* Room code is a **6-digit PIN**. Max 4 players. 10 rounds.
-* Target is drawn from the 74-object pool and sent with its Fluent flat-SVG icon.
-* **Placement scoring: 1st = 4 pts, 2nd = 3, 3rd = 2, 4th = 1.** Everyone keeps hunting until all have found it (or the host presses SKIP).
-* A rejected attempt = 3s cooldown + a roast. Screen-cheats are caught and rejected.
+* Max 4 players, 10 rounds, 90s round limit.
+* **Placement scoring: 1st = 4 pts, 2nd = 3, 3rd = 2, 4th = 1.** Everyone keeps hunting until all have found it, given up, or the host presses SKIP.
+* Rejected attempt = 3s cooldown + a roast. Screen-cheats are caught and rejected.
 * **The server is authoritative.** The client only sends a photo; it never decides scores.
 
 ### Socket events
-`room:create` · `room:join` · `peer:register` · `game:start` · `round:attempt` · `round:skip` · `game:reset`
-→ `room:update` · `round:start` · `round:verdict` · `round:end` · `game:over` · `game:error`
+Client -> server: `room:create` `room:join` `peer:register` `room:set-mode` `room:set-theme` `game:start` `round:attempt` `round:give-up` `round:skip` `SUBMIT_SELFIE` `game:reset`
+Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `round:verdict` `round:end` `game:over` `game:error`
 
-### Gemini model — IMPORTANT
-`gemini-2.5-flash` is **dead** (404 "no longer available to new users"). Default is **`gemini-3.1-flash-lite`** with automatic fallback to `gemini-3.8-flash` → `gemini-3.5-flash-lite`. Override with `GEMINI_MODEL`. Key goes in `server/.env` (gitignored).
+### Gemini model - IMPORTANT
+`gemini-2.5-flash` is **dead** (404 "no longer available to new users"). Default is **`gemini-3.1-flash-lite`**, falling back to `gemini-3.8-flash` then `gemini-3.5-flash-lite` on 429/404/503. Override with `GEMINI_MODEL`. Key lives in `server/.env` (gitignored) and in Render's Environment tab.
+
+### Camera / UI notes
+* Camera starts on the **selfie** lens (`INITIAL_FACING_MODE` in `useWebRTC.ts`); flip button switches to rear.
+* The lobby shows live unfiltered camera feeds. It is locked to the viewport on phones so nothing scrolls; from `sm:` up it takes natural height and tiles are full size, which can scroll on short laptop windows - that is deliberate.
+* Custom font is preloaded in `index.html` with `font-display: block` to stop the fallback flashing on refresh.
 
 ### Testing
-* `npm run typecheck` (root) — server types + frontend production build
-* `npm run test:referee:suite` — 10-case AI referee suite (10/10 passing)
-* `npm run simulate` — full 2-player game over real sockets (7/7 passing)
-* `SPOTLE_FORCE_TARGET=hammer npm start` — pin the target for reproducible demos
-* `npm run test:referee` — standalone referee workbench on :4005
-
-### Removed as duplicates
-`frontend/src/lobby_controller.ts`, `game_controller.ts`, `test.tsx` (empty), `data/items.json` (placeholder images), `server_test_index.html`. All recoverable from git history.
-`frontend/src/components/VideoGrid.tsx` is **unused** — the styled grid in `App.tsx` replaced it.
-
-### Deployment
-* **Single origin.** The server serves `frontend/dist`, so the game is one process on one port. There is no separate frontend service to deploy.
-* `render.yaml` (repo root) is a Render Blueprint: New -> Blueprint -> pick the repo, then set `GEMINI_API_KEY` in the Environment tab. Pushes to `main` auto-deploy.
-* **Build gotchas already handled:** `tsx` is a real dependency (Render skips devDependencies in production), and the frontend install uses `--include=dev` because Vite/TypeScript live there.
-* Production run locally: `npm run build --prefix frontend && NODE_ENV=production npm start --prefix server`.
-* Free tier sleeps after 15 min (~1 min cold start) and rooms are in memory, so **never redeploy during a demo** and wake the site first.
-* Custom domain: add it in Render, then put the A (root) + CNAME (www) records Render shows into GoDaddy DNS. Remove any AAAA record.
+* `npm run typecheck` (root) - server types + frontend production build
+* `npm run simulate` - full 2-player game over real sockets
+* `npm run test:referee:suite` - 10-case AI referee suite
+* `SPOTLE_FORCE_TARGET=<item id> npm start` - pin the round target for a reproducible demo
+* `GET /api/rooms/<pin>/debug` - per-player PeerJS ids, for diagnosing camera mesh problems
 
 ### Current Focus
-Game is playable end to end. Next up: sound effects, the UF/SwampHacks theme pack, and a global leaderboard.
+Playable end to end and deployed. Highest value next: **more items in `MASTER_ITEM_DATABASE`**, then a global leaderboard.
 
 Project Info:
 SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)

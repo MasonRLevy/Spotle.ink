@@ -929,21 +929,21 @@ useEffect(() => {
       <div
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:p-6">
-          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:gap-5 sm:py-4">
+        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:h-auto sm:min-h-screen sm:overflow-visible sm:p-6">
+          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:h-auto sm:gap-5 sm:py-4">
             <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
               PIN: {room!.roomCode}
             </p>
             {/* The grid is the only flexible row: it gives up height first so
                 the PIN and the buttons always stay on screen. Capped at its own
                 width so tiles stay square on roomy screens. */}
-            <ul className="grid min-h-0 w-full flex-1 grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:gap-3" style={{ maxHeight: 'min(92vw, 28rem)' }}>
+            <ul className="grid min-h-0 w-full flex-1 max-h-[min(92vw,28rem)] grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:max-h-none sm:flex-none sm:gap-3">
               {Array.from({ length: maxPlayers }, (_, index) => {
                 const player = players[index];
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:rounded-[2rem] sm:text-lg"
+                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:h-auto sm:w-full sm:max-w-none sm:rounded-[2rem] sm:text-lg"
                   >
                     {player ? (
                       <LobbyCamTile
