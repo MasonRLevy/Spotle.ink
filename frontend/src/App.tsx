@@ -16,6 +16,13 @@ export default function App() {
   const [snapshotKb, setSnapshotKb] = useState<number | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [verification, setVerification] = useState<{
+    verified: boolean;
+    confidence: number;
+    isScreenCheat: boolean;
+    commentary: string;
+  } | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const webrtc = useWebRTC({
     enabled,
@@ -72,14 +79,44 @@ export default function App() {
     window.setTimeout(() => setCopied(false), 1500);
   }
 
-  function onFoundIt() {
+  async function onFoundIt() {
     setCaptureError(null);
+    setVerification(null);
+
     try {
       const jpeg = webrtc.captureJpeg();
       setSnapshot(jpeg);
       setSnapshotKb(estimateJpegKilobytes(jpeg));
+      setIsVerifying(true);
+
+      const response = await fetch('http://localhost:3001/api/verify-object', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageDataUrl: jpeg,
+          roomCode: 'demo-room',
+          playerId: LOCAL_ID,
+          targetObject: 'target object',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Verification failed (${response.status}).`);
+      }
+
+      const payload = (await response.json()) as {
+        verified: boolean;
+        confidence: number;
+        isScreenCheat: boolean;
+        commentary: string;
+      };
+      setVerification(payload);
     } catch (err) {
-      setCaptureError(err instanceof Error ? err.message : 'Capture failed.');
+      setCaptureError(err instanceof Error ? err.message : 'Verification failed.');
+    } finally {
+      setIsVerifying(false);
     }
   }
 
@@ -122,6 +159,7 @@ export default function App() {
           </div>
 
           {captureError && <p className="text-sm text-red-400">{captureError}</p>}
+          {isVerifying && <p className="text-sm text-amber-300">Checking image with the live referee…</p>}
           {snapshot && (
             <figure className="max-w-sm overflow-hidden rounded-xl ring-1 ring-white/10">
               <img src={snapshot} alt="Captured hunt frame" className="w-full" />
@@ -129,6 +167,20 @@ export default function App() {
                 Canvas JPEG{snapshotKb != null ? ` · ${snapshotKb} KB` : ''} · quality 0.8 · max 640px
               </figcaption>
             </figure>
+          )}
+          {verification && (
+            <div className="max-w-sm rounded-xl border border-white/10 bg-black/30 p-3 text-sm">
+              <p className={`font-bold ${verification.verified ? 'text-emerald-400' : 'text-red-400'}`}>
+                {verification.verified ? 'Verified' : 'Not verified'}
+              </p>
+              <p className="mt-1 text-xs text-zinc-300">
+                Confidence: {(verification.confidence * 100).toFixed(0)}%
+              </p>
+              <p className="mt-2 text-xs text-zinc-400">{verification.commentary}</p>
+              {verification.isScreenCheat && (
+                <p className="mt-2 text-xs text-orange-300">Screen-capture cheating detected.</p>
+              )}
+            </div>
           )}
         </div>
 
