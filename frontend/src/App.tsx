@@ -34,7 +34,7 @@ type PawPrint = LobbyPoint & { id: number; angle: number };
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
 
-const taskbarHeightClass = 'h-32';
+const taskbarHeightClass = 'h-[calc(8rem+var(--spotle-safe-area-bottom))]';
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -1004,7 +1004,7 @@ function PlayingScreen({
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
       <div
-        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-8rem)] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
+        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-8rem-var(--spotle-safe-area-bottom))] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
       >
         {Array.from({ length: hasTargetCell ? maxPlayers : players.length }, (_, index) => {
           if (hasTargetCell && index === maxPlayers - 1) {
@@ -1089,7 +1089,7 @@ function PlayingScreen({
         <div
           className={`pointer-events-none absolute z-50 ${
             players.length === 2
-              ? 'bottom-[9rem] left-1/2 -translate-x-1/2'
+              ? 'bottom-[calc(9rem+var(--spotle-safe-area-bottom))] left-1/2 -translate-x-1/2'
               : 'right-4 top-4'
           }`}
         >
@@ -1104,7 +1104,7 @@ function PlayingScreen({
       </div>
 
       {captureError && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-[calc(8rem+var(--spotle-safe-area-bottom))] z-30 flex justify-center px-4">
           <p className="max-w-xl rounded-2xl border-4 border-spotle-cream bg-red-600 px-4 py-2 text-center text-base text-white">
             {captureError}
           </p>
@@ -1113,7 +1113,7 @@ function PlayingScreen({
 
       <nav
         aria-label="Game controls"
-        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 pb-4 pt-2 text-spotle-navy sm:gap-6 sm:px-8`}
+        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 pb-[calc(1rem+var(--spotle-safe-area-bottom))] pt-2 text-spotle-navy sm:gap-6 sm:px-8`}
       >
         <button
           type="button"
