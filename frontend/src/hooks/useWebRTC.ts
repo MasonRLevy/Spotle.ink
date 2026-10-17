@@ -4,6 +4,15 @@ import { captureVideoFrame } from '../utils/captureFrame';
 
 export type FacingMode = 'user' | 'environment';
 
+/**
+ * Which camera a player starts on.
+ *
+ * 'user' (selfie) because the first thing anyone sees is the lobby, where the
+ * point is seeing each other's faces. Players flip to the rear camera with the
+ * flip button once they are actually hunting.
+ */
+const INITIAL_FACING_MODE: FacingMode = 'user';
+
 export interface RemotePeer {
   playerId: string;
   peerId: string;
@@ -47,7 +56,7 @@ export function useWebRTC(options: {
   const [localPeerId, setLocalPeerId] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteMedia, setRemoteMedia] = useState<Record<string, RemoteMedia>>({});
-  const [facingMode, setFacingMode] = useState<FacingMode>('environment');
+  const [facingMode, setFacingMode] = useState<FacingMode>(INITIAL_FACING_MODE);
   const [error, setError] = useState<string | null>(null);
   const [isFlipping, setIsFlipping] = useState(false);
 
@@ -59,7 +68,7 @@ export function useWebRTC(options: {
   const onPeerIdRef = useRef(onLocalPeerId);
   const localNameRef = useRef(localName);
   const localPlayerIdRef = useRef(localPlayerId);
-  const facingRef = useRef<FacingMode>('environment');
+  const facingRef = useRef<FacingMode>(INITIAL_FACING_MODE);
   const fallbackTimersRef = useRef<number[]>([]);
 
   remotePeersRef.current = remotePeers;
