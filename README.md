@@ -115,6 +115,66 @@ DNS usually propagates in minutes, but allow a few hours. Set it up early.
 > GoDaddy sells the *name*; it does not run the code. Render runs the code.
 > Those are two separate things, and both are needed.
 
+## Android and iOS app
+
+The mobile app wraps the existing Vite UI with Capacitor. The Node server stays
+hosted separately; mobile clients connect to it over HTTPS/WSS. Set the server
+origin before making a native production build. Capacitor 8's CLI requires
+Node.js 22 or newer:
+
+```powershell
+cd frontend
+Copy-Item .env.example .env.production.local
+# Edit .env.production.local and set VITE_SERVER_URL to the deployed HTTPS URL.
+npm install
+npm run build
+npm run cap:add:android
+npm run cap:sync
+npm run cap:open:android
+```
+
+For iOS, run `npm run cap:add:ios`, `npm run cap:sync`, then
+`npm run cap:open:ios` on macOS. Android builds need Android Studio and its SDK;
+iOS builds/signing require macOS, Xcode, and an Apple signing team. Run
+`npm run cap:sync` after each frontend change to rebuild and copy `dist` into the
+native projects. The standard `npm run dev` and `npm run build` web workflows
+remain unchanged.
+
+After adding the platforms, add camera permission declarations to the generated
+projects:
+
+- Android: in `frontend/android/app/src/main/AndroidManifest.xml`, add
+   `<uses-permission android:name="android.permission.CAMERA" />` and
+   `<uses-feature android:name="android.hardware.camera.any" android:required="true" />`
+   before the `<application>` element. In `MainActivity`, call
+   `androidx.activity.EdgeToEdge.enable(this)` from `onCreate` before
+   `super.onCreate(savedInstanceState)`; Capacitor's SystemBars configuration
+   then supplies the safe-area CSS variable on Android 15/16 and older WebViews.
+- iOS: in `frontend/ios/App/App/Info.plist`, add `NSCameraUsageDescription`
+   with a user-facing description such as “Spotle uses the camera for live game
+   video and FOUND IT photos.”
+
+Commit the generated `frontend/android` and `frontend/ios` projects after
+adding these settings so future builds use the same native configuration.
+
+Spotle currently requests video only (`audio: false`), so it must not request a
+microphone permission. The FOUND IT photo continues to come from the active
+video element; do not add a second camera capture stream. Test camera permission,
+camera flip, PeerJS video, Socket.IO reconnects, and screen safe areas on
+physical Android and iOS devices. PeerJS mesh quality can vary across mobile
+carrier and campus networks.
+
+The local Capacitor origin is secure (`https://localhost` on Android and
+`capacitor://localhost` on iOS), so camera APIs can run inside the WebView. The
+app defaults to `https://spotle.ink`; set `VITE_SERVER_URL` in
+`.env.production.local` when building against another deployment. Never set a
+production mobile build's server URL to `localhost`.
+
+The existing Spotle logo is a wide wordmark, not a square app icon. Native app
+icons and splash artwork should be generated from dedicated high-resolution
+square icon and splash source images before store submission; Capacitor's
+`@capacitor/assets` tool supports generating those files for both platforms.
+
 ## Testing
 
 ```bash

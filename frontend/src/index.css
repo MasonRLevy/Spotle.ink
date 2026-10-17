@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @config "../tailwind.config.js";
 
+:root {
+  --spotle-safe-area-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+
 @font-face {
   font-family: 'BoldsPixels';
   src: url('./assets/BoldsPixels.ttf') format('truetype');

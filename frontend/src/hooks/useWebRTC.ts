@@ -233,7 +233,7 @@ export function useWebRTC(options: {
       setError(null);
 
       if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-        setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
+        setError('Camera access is not available on this device.');
         return;
       }
 
@@ -319,7 +319,7 @@ export function useWebRTC(options: {
           err instanceof Error ? err.message : 'Could not access the camera.';
         setError(
           message.includes('Permission') || message.includes('NotAllowed')
-            ? 'Camera permission was blocked. Allow camera access and reload.'
+            ? 'Camera permission was blocked. Allow camera access for Spotle and retry.'
             : message,
         );
       }
@@ -363,7 +363,7 @@ export function useWebRTC(options: {
     if (!current || isFlipping) return;
 
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-      setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
+      setError('Camera access is not available on this device.');
       return;
     }
 
