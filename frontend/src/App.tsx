@@ -920,7 +920,7 @@ useEffect(() => {
           className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
         >
           <div
-            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            className="absolute inset-0 bg-repeat opacity-[0.15]"
             style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
           />
           <img
@@ -937,11 +937,11 @@ useEffect(() => {
             alt=""
             aria-hidden="true"
             onLoad={initializeDogNearHouse}
-            className="absolute bottom-4 left-2 z-10 h-auto w-72 select-none object-contain mix-blend-multiply md:hidden"
+            className="absolute left-1/2 top-3 z-10 h-auto w-72 -translate-x-1/2 select-none object-contain mix-blend-multiply md:hidden"
           />
           {renderInkMiniGame()}
         </div>
-        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 text-center sm:gap-8 sm:p-6">
+        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 pt-36 text-center sm:gap-8 sm:p-6 sm:pt-6">
           <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
               <img src={spotleLogo} alt="Spotle" className="relative top-2 w-full max-w-md" />
@@ -1157,7 +1157,7 @@ useEffect(() => {
           className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
         >
           <div
-            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            className="absolute inset-0 bg-repeat opacity-[0.15]"
             style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
           />
         </div>
