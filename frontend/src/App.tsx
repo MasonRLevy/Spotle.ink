@@ -21,7 +21,11 @@ import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
+<<<<<<< HEAD
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.wav';
+=======
+import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
+>>>>>>> 1897aa9ad35d62fc989c50b6aa433cf9f6ad0a26
 
 const maxPlayers = 4;
 const dogSpeed = 5;
