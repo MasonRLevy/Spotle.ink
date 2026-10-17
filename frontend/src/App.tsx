@@ -8,6 +8,9 @@ import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
+import correctAudioSrc from './assets/sounds/CorrectImage.mp4';
+import wrongAudioSrc from './assets/sounds/WrongImage.mp4';
+import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp4';
 
 const maxPlayers = 4;
 
@@ -45,6 +48,10 @@ export default function App() {
   const [isMouthOpen, setIsMouthOpen] = useState(false);
   const [isRefereeFading, setIsRefereeFading] = useState(false);
 
+  const flashAudio = useRef(new Audio(flashAudioSrc));
+  const correctAudio = useRef(new Audio(correctAudioSrc));
+  const wrongAudio = useRef(new Audio(wrongAudioSrc));
+
   const room = game.room;
   const me = room && game.playerId ? room.players[game.playerId] : undefined;
   const players = useMemo(() => (room ? Object.values(room.players) : []), [room]);
@@ -61,6 +68,21 @@ export default function App() {
     );
   }, [players]);
 
+
+  useEffect(() => {
+    const verdict = game.lastVerdict;
+    if (!verdict) return;
+
+    if (verdict.playerId === game.playerId) {
+      if (verdict.verdict.verified) {
+        correctAudio.current.currentTime = 0;
+        correctAudio.current.play().catch((err) => console.warn("Correct audio blocked:", err));
+      } else {
+        wrongAudio.current.currentTime = 0;
+        wrongAudio.current.play().catch((err) => console.warn("Wrong audio blocked:", err));
+      }
+    }
+  }, [game.lastVerdict, game.playerId]);
   // --- WebRTC: start the camera as soon as we are in a room, so PeerJS has
   // time to mesh before round 1 begins.
   const remotePeers: RemotePeer[] = useMemo(
@@ -181,6 +203,10 @@ export default function App() {
     if (room?.status !== 'HUNTING' || me?.status !== 'SEARCHING') return;
     setCaptureError(null);
     try {
+      // Play flash audio effect right when capturing
+      flashAudio.current.currentTime = 0;
+      flashAudio.current.play().catch((err) => console.warn("Flash audio blocked:", err));
+
       const dataUrl = webrtc.captureJpeg();
       setFlashing(true);
       window.setTimeout(() => setFlashing(false), 500);
