@@ -122,19 +122,19 @@ useEffect(() => {
       return;
     }
 
-    setCountdownNumber(3);
+    setCountdownNumber(3); // Start at 3
     const interval = window.setInterval(() => {
       setCountdownNumber((prev) => {
-        if (prev === null || prev <= 1) {
+        if (prev === null || prev <= 0) {
           window.clearInterval(interval);
-          return null;
+          return null; // Clears the countdown overlay when it hits the end
         }
-        return prev - 1;
+        return prev - 1; // 3 -> 2 -> 1 -> 0
       });
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [room?.status]);
+  }, [room?.status, round?.roundNumber]);
   useEffect(() => {
     const verdict = game.lastVerdict;
     if (!verdict) return;
@@ -1305,7 +1305,7 @@ function PlayingScreen({
           <p className="text-center text-4xl text-spotle-coral md:text-6xl">GET READY!</p>
           {countdownNumber !== null && (
             <p className="text-center text-8xl text-spotle-cream animate-pulse font-bold">
-              {countdownNumber}
+              {countdownNumber > 0 ? countdownNumber : 'GO!'}
             </p>
           )}
         </div>
