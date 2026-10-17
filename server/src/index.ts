@@ -1,5 +1,5 @@
 /**
- * Spotle.online - THE universal game server.
+ * Spotle.ink - THE universal game server.
  *
  * Replaces the three separate prototypes:
  *   - backend/main.py        (Python FastAPI round loop)      -> gameEngine.ts
@@ -174,7 +174,7 @@ io.on('connection', (socket) => {
 
 httpServer.listen(PORT, async () => {
   console.log('');
-  console.log('  Spotle.online - universal server');
+  console.log('  Spotle.ink - universal server');
   console.log(`  Game + API      : http://localhost:${PORT}`);
   console.log(`  Referee bench   : http://localhost:${PORT}/referee`);
   console.log(`  Objects loaded  : ${getAllObjects().length}`);
