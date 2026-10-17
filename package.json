@@ -6,6 +6,10 @@
   "name": "spotle.ink",
   "private": true,
   "scripts": {
+    "server": "npm start --prefix server",
+    "web": "npm run dev --prefix frontend",
+    "typecheck": "npm run typecheck --prefix server && npm run build --prefix frontend",
+    "simulate": "npm run simulate --prefix server",
     "test:referee": "npm run test:referee --prefix server",
     "test:referee:suite": "npm run test:referee:suite --prefix server"
   }

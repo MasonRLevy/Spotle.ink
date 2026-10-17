@@ -21,24 +21,53 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** 2026-10-17 (Role 4 — Gemini AI Referee)
-* **Latest Action:** Isolated backend module at `server/gemini-referee/` — does **not** touch the Vite frontend, Socket.io loop, or WebRTC. Curated **74-object** `objectPool` (28 `HACKATHON_CAMPUS` + 46 `HOUSEHOLD`) with Microsoft Fluent UI **Flat SVG** art via jsDelivr; all 74 SVG URLs verified to resolve. Goldilocks Gemini Vision referee with strict structured `VerificationResponse` JSON. Regression suite passes **10/10 at ~1.5s avg**.
-* **MODEL — IMPORTANT FOR ALL ROLES:** `gemini-2.5-flash` (the original spec model) is **dead** — it still appears in ListModels but returns 404 *"no longer available to new users"* on `generateContent` for recently created keys. The referee now defaults to **`gemini-3.1-flash-lite`**, with an automatic fallback chain `gemini-3.1-flash-lite → gemini-3.8-flash → gemini-3.5-flash-lite` on 429/404/503. Override via `GEMINI_MODEL` (single model or comma-separated chain).
-  * **Role 3 / Python backend:** `backend/services/gemini_service.py` still references `gemini-2.5-flash` and will 404 — needs the same model swap.
-* **Timeouts:** 9s per model, 20s total, with real request aborts. Without these a stalled chain hung 68s; it now fails in <1s. Tune with `REFEREE_MODEL_TIMEOUT_MS` / `REFEREE_TOTAL_TIMEOUT_MS`.
-* **Billing:** enabled on the API key project. Cost is ~$0.0004 per verification (~2¢ per 4-player match), so the free-tier 20-req/day cap is no longer a concern.
-* **Object pool note:** 11 objects were removed because their Fluent flat SVG depicted a different item than the target (e.g. Towel showed a bathtub, Remote Control showed a TV). Since the flat SVG sits dead-center as the on-screen prompt, a misleading icon is worse than a smaller pool. Pool is now 74; backfill with icon-accurate items if we want 85+.
-* **How to plug into the main Express server later (2 lines):**
-  ```ts
-  import { refereeRouter } from "./gemini-referee/index.js";
-  app.use(refereeRouter);
-  ```
-* **Exported functions:** `getAllObjects()`, `getObjectById(id)`, `getRandomTargetObject({ category, difficulty, excludeIds })`, `verifyObjectPhoto({ targetObject, imageBase64, playerName })`, `verifyObjectPhotoDetailed(...)` (adds `model` + `skipped`), `checkGeminiApiKey()`, `getModelChain()`
-* **Endpoints:** `GET /api/referee/objects` · `GET /api/referee/random-object?category=&difficulty=&exclude=` · `POST /api/referee/verify` · `GET /api/referee/health`
-  * `POST /api/referee/verify` returns the `VerificationResponse` fields plus `latencyMs` and `model`.
-* **Local testing:** `cd server && npm install`, then `npm run test:referee` → http://localhost:4005 (workbench UI). Also `npm run test:referee:suite` (10-case regression), `npm run test:referee:svgs` (icon URL check), `npm run test:referee:fixtures` (download/generate test images — fixtures are gitignored).
-* **Secrets:** Put `GEMINI_API_KEY` in `server/.env` (see `.env.example`). All `.env` files are gitignored and have never been committed.
-* **Current Focus:** Role 4 module is feature-complete and tested standalone. Other roles keep frontend / Socket.io / WebRTC work separate until we mount `refereeRouter` on the real game server.
+* **Last Updated:** 2026-10-17 — THE BIG MERGE (all four roles combined)
+* **ONE SERVER NOW.** The three separate backends have been merged into `server/`. `backend/` is **deprecated and no longer runs** — see `backend/DEPRECATED.md` for where each file went. Do not add features to `backend/`.
+
+### How to run the game
+```bash
+cd server   && npm install && npm start     # unified server  :3001
+cd frontend && npm install && npm run dev   # UI              :5173
+```
+Open http://localhost:5173 — Create Game gives a 6-digit PIN, others Join with it, host presses START GAME.
+Camera needs `localhost` or HTTPS; for phones use `ngrok http 5173`.
+
+### Architecture (single source of truth)
+* `shared/game.ts` — **LOCKED type contract, imported by BOTH server and frontend.** Frontend reaches it via the `@shared` Vite alias; `frontend/src/types/game.ts` just re-exports it. Change types here and nowhere else.
+* `server/src/index.ts` — Express + Socket.io + referee, one process.
+* `server/src/rooms.ts` — room registry, 6-digit PINs, host promotion.
+* `server/src/gameEngine.ts` — round loop, Gemini verification, placement scoring.
+* `server/gemini-referee/` — AI referee + 74-object pool (Role 4, unchanged).
+* `frontend/src/hooks/useGameSocket.ts` — all room/round networking.
+* `frontend/src/hooks/useWebRTC.ts` — PeerJS mesh, camera flip, frame capture (Role 2).
+
+### Game rules as implemented
+* Room code is a **6-digit PIN**. Max 4 players. 10 rounds.
+* Target is drawn from the 74-object pool and sent with its Fluent flat-SVG icon.
+* **Placement scoring: 1st = 4 pts, 2nd = 3, 3rd = 2, 4th = 1.** Everyone keeps hunting until all have found it (or the host presses SKIP).
+* A rejected attempt = 3s cooldown + a roast. Screen-cheats are caught and rejected.
+* **The server is authoritative.** The client only sends a photo; it never decides scores.
+
+### Socket events
+`room:create` · `room:join` · `peer:register` · `game:start` · `round:attempt` · `round:skip` · `game:reset`
+→ `room:update` · `round:start` · `round:verdict` · `round:end` · `game:over` · `game:error`
+
+### Gemini model — IMPORTANT
+`gemini-2.5-flash` is **dead** (404 "no longer available to new users"). Default is **`gemini-3.1-flash-lite`** with automatic fallback to `gemini-3.8-flash` → `gemini-3.5-flash-lite`. Override with `GEMINI_MODEL`. Key goes in `server/.env` (gitignored).
+
+### Testing
+* `npm run typecheck` (root) — server types + frontend production build
+* `npm run test:referee:suite` — 10-case AI referee suite (10/10 passing)
+* `npm run simulate` — full 2-player game over real sockets (7/7 passing)
+* `SPOTLE_FORCE_TARGET=hammer npm start` — pin the target for reproducible demos
+* `npm run test:referee` — standalone referee workbench on :4005
+
+### Removed as duplicates
+`frontend/src/lobby_controller.ts`, `game_controller.ts`, `test.tsx` (empty), `data/items.json` (placeholder images), `server_test_index.html`. All recoverable from git history.
+`frontend/src/components/VideoGrid.tsx` is **unused** — the styled grid in `App.tsx` replaced it.
+
+### Current Focus
+Game is playable end to end. Next up: sound effects, the UF/SwampHacks theme pack, and a global leaderboard.
 
 Project Info:
 SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)

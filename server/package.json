@@ -4,16 +4,21 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
     "test:referee": "tsx gemini-referee/testServer.ts",
     "test:referee:suite": "tsx gemini-referee/_testReferee.ts",
     "test:referee:svgs": "tsx gemini-referee/_verifySvgs.ts",
-    "test:referee:fixtures": "tsx gemini-referee/_fetchFixtures.ts && tsx gemini-referee/_makeCheatFixture.ts"
+    "test:referee:fixtures": "tsx gemini-referee/_fetchFixtures.ts && tsx gemini-referee/_makeCheatFixture.ts",
+    "simulate": "tsx src/_simulateGame.ts"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "socket.io": "^4.8.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -22,6 +27,7 @@
     "@types/pngjs": "^6.0.5",
     "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
+    "socket.io-client": "^4.8.4",
     "tsx": "^4.19.2",
     "typescript": "~5.7.2"
   }
