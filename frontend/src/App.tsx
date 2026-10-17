@@ -18,7 +18,9 @@ import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
+import { ThemePicker } from './components/ThemePicker';
 import type { Player, RoundData } from '@shared/game';
+import { getTheme } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
@@ -30,9 +32,13 @@ const maxPawPrints = 100;
 
 type LobbyPoint = { x: number; y: number };
 type PawPrint = LobbyPoint & { id: number; angle: number };
+type PastChest = LobbyPoint & { id: number };
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
+
+const lobbyButtonClass =
+  'w-full shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-5 py-2.5 text-base text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:py-4 sm:text-xl';
 
 const taskbarHeightClass = 'h-32';
 
@@ -54,6 +60,7 @@ export default function App() {
   const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
   const [joinPin, setJoinPin] = useState('');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [flashing, setFlashing] = useState(false);
@@ -65,8 +72,8 @@ export default function App() {
   const [isTalking, setIsTalking] = useState(false);
   const [isMouthOpen, setIsMouthOpen] = useState(false);
   const [isRefereeFading, setIsRefereeFading] = useState(false);
-  const [targetPosition, setTargetPosition] = useState<LobbyPoint | null>(null);
-  const [showTreasureChest, setShowTreasureChest] = useState(true);
+  const [activeX, setActiveX] = useState<LobbyPoint | null>(null);
+  const [pastChests, setPastChests] = useState<PastChest[]>([]);
   const [pawPrints, setPawPrints] = useState<PawPrint[]>([]);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
@@ -80,7 +87,9 @@ export default function App() {
   const routeControlRef = useRef<LobbyPoint>({ x: 0, y: 0 });
   const routeProgressRef = useRef(0);
   const routeLengthRef = useRef(0);
+  const routeStartRef = useRef<LobbyPoint>({ x: 0, y: 0 });
   const routeBendRef = useRef(1);
+  const miniGameItemIdRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const pawDistanceRef = useRef(0);
   const dogPositionInitializedRef = useRef(false);
@@ -229,13 +238,12 @@ useEffect(() => {
         y: lobby.clientHeight * 0.38,
       };
       targetPositionRef.current = initialTarget;
-      setTargetPosition(initialTarget);
-      setShowTreasureChest(true);
+      setActiveX(initialTarget);
     }
     const { x, y } = dogPositionRef.current;
     if (dogRef.current) {
       dogRef.current.style.transform =
-        `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(1)`;
+        `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(${dogScaleRef.current})`;
     }
   }, [isHomeOrLobby]);
 
@@ -360,15 +368,28 @@ useEffect(() => {
 
     targetPositionRef.current = target;
     const start = dogPositionRef.current;
+    routeStartRef.current = start;
     const dx = target.x - start.x;
     const dy = target.y - start.y;
     const directDistance = Math.hypot(dx, dy);
-    const bendDistance = Math.min(90, Math.max(24, directDistance * 0.18));
-    const bendDirection = routeBendRef.current;
-    routeBendRef.current *= -1;
+    const bendDistance = 200 + Math.random() * 200;
+    const bendDirection = Math.random() < 0.5 ? -1 : 1;
+    routeBendRef.current = bendDirection;
     routeControlRef.current = {
-      x: (start.x + target.x) / 2 - (dy / (directDistance || 1)) * bendDistance * bendDirection,
-      y: (start.y + target.y) / 2 + (dx / (directDistance || 1)) * bendDistance * bendDirection,
+      x: Math.max(
+        48,
+        Math.min(
+          bounds.width - 48,
+          (start.x + target.x) / 2 - (dy / (directDistance || 1)) * bendDistance * bendDirection,
+        ),
+      ),
+      y: Math.max(
+        48,
+        Math.min(
+          bounds.height - 48,
+          (start.y + target.y) / 2 + (dx / (directDistance || 1)) * bendDistance * bendDirection,
+        ),
+      ),
     };
     routeProgressRef.current = 0;
     let sampledPathLength = 0;
@@ -389,7 +410,7 @@ useEffect(() => {
     }
     routeLengthRef.current = sampledPathLength;
     pawDistanceRef.current = 0;
-    setTargetPosition(target);
+    setActiveX(target);
 
     const animateDog = () => {
       const current = dogPositionRef.current;
@@ -405,7 +426,12 @@ useEffect(() => {
         dog.style.transform =
           `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(1)`;
         animationFrameRef.current = null;
-        setShowTreasureChest(true);
+        targetPositionRef.current = null;
+        setActiveX(null);
+        setPastChests((chests) => [
+          ...chests,
+          { ...destination, id: miniGameItemIdRef.current++ },
+        ]);
         return;
       }
 
@@ -417,22 +443,27 @@ useEffect(() => {
       const t = routeProgressRef.current;
       const inverseT = 1 - t;
       const control = routeControlRef.current;
+      const startPoint = routeStartRef.current;
       const next = {
-        x: inverseT * inverseT * start.x
+        x: inverseT * inverseT * startPoint.x
           + 2 * inverseT * t * control.x
           + t * t * destination.x,
-        y: inverseT * inverseT * start.y
+        y: inverseT * inverseT * startPoint.y
           + 2 * inverseT * t * control.y
           + t * t * destination.y,
       };
+      const tangentX = 2 * inverseT * (control.x - startPoint.x)
+        + 2 * t * (destination.x - control.x);
+      const tangentY = 2 * inverseT * (control.y - startPoint.y)
+        + 2 * t * (destination.y - control.y);
       const dx = next.x - current.x;
       const dy = next.y - current.y;
       const step = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx);
+      const angle = Math.atan2(tangentY, tangentX);
       dogPositionRef.current = next;
-      if (Math.abs(dx) > 0.01) dogScaleRef.current = dx < 0 ? -1 : 1;
+      dogScaleRef.current = dx < 0 ? -1 : 1;
       dog.style.transform =
-        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
+        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) rotate(${angle}rad) scaleX(${dogScaleRef.current})`;
 
       pawDistanceRef.current += step;
       while (pawDistanceRef.current >= pawPrintSpacing) {
@@ -440,7 +471,7 @@ useEffect(() => {
         setPawPrints((prints) => [
           ...prints,
           {
-            id: performance.now(),
+            id: miniGameItemIdRef.current++,
             x: next.x,
             y: next.y,
             angle: (angle * 180) / Math.PI,
@@ -457,13 +488,34 @@ useEffect(() => {
   function renderInkMiniGame() {
     return (
       <>
+        {pastChests.map((chest) => (
+          <img
+            key={chest.id}
+            src={treasureChest}
+            alt=""
+            aria-hidden="true"
+            onAnimationEnd={() =>
+              setPastChests((chests) => chests.filter((item) => item.id !== chest.id))
+            }
+            className="animate-fade-out-print pointer-events-none absolute z-10 h-20 w-20 select-none object-contain mix-blend-darken"
+            style={{
+              left: chest.x,
+              top: chest.y,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
+        ))}
+
         {pawPrints.map((paw) => (
           <img
             key={paw.id}
             src={inkPaw}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain"
+            onAnimationEnd={() =>
+              setPawPrints((prints) => prints.filter((print) => print.id !== paw.id))
+            }
+            className="animate-fade-out-print pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-darken"
             style={{
               left: paw.x,
               top: paw.y,
@@ -472,33 +524,18 @@ useEffect(() => {
           />
         ))}
 
-        {targetPosition && (
-          <>
-            <img
-              src={xMarksTheSpot}
-              alt=""
-              aria-hidden="true"
-              className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain md:h-28 md:w-28"
-              style={{
-                left: targetPosition.x,
-                top: targetPosition.y,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
-            {showTreasureChest && (
-              <img
-                src={treasureChest}
-                alt=""
-                aria-hidden="true"
-                className="pointer-events-none absolute z-10 h-16 w-16 select-none object-contain md:h-20 md:w-20"
-                style={{
-                  left: targetPosition.x,
-                  top: targetPosition.y,
-                  transform: 'translate(-50%, -50%)',
-                }}
-              />
-            )}
-          </>
+        {activeX && (
+          <img
+            src={xMarksTheSpot}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-darken md:h-28 md:w-28"
+            style={{
+              left: activeX.x,
+              top: activeX.y,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
         )}
 
         <img
@@ -506,7 +543,7 @@ useEffect(() => {
           src={inkRunning}
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain"
+          className="pointer-events-none absolute left-0 top-0 z-10 h-48 w-48 select-none object-contain"
           style={{
             transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
@@ -527,8 +564,13 @@ useEffect(() => {
         onClick={handleLobbyClick}
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        {renderInkMiniGame()}
-        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
+        >
+          {renderInkMiniGame()}
+        </div>
+        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-5">
               <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
@@ -624,20 +666,28 @@ useEffect(() => {
         onClick={handleLobbyClick}
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        {renderInkMiniGame()}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
+        >
+          {renderInkMiniGame()}
+        </div>
 
-        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-          <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
-            <p className="rounded-full border-4 border-spotle-cream bg-spotle-navy px-8 py-4 text-2xl text-spotle-coral">
+        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:p-6">
+          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:gap-5 sm:py-4">
+            <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
               PIN: {room!.roomCode}
             </p>
-            <ul className="grid w-full shrink-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-3">
+            {/* The grid is the only flexible row: it gives up height first so
+                the PIN and the buttons always stay on screen. Capped at its own
+                width so tiles stay square on roomy screens. */}
+            <ul className="grid min-h-0 w-full flex-1 grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:gap-3" style={{ maxHeight: 'min(92vw, 28rem)' }}>
               {Array.from({ length: maxPlayers }, (_, index) => {
                 const player = players[index];
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="aspect-square min-h-0 min-w-0 w-full overflow-hidden break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy text-center text-lg text-spotle-coral"
+                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:rounded-[2rem] sm:text-lg"
                   >
                     {player ? (
                       <LobbyCamTile
@@ -666,9 +716,9 @@ useEffect(() => {
             </ul>
 
             {webrtc.error && (
-              <p className="text-base text-red-700">{webrtc.error}</p>
+              <p className="shrink-0 text-sm text-red-700 sm:text-base">{webrtc.error}</p>
             )}
-            <p className="text-base text-spotle-navy/70">
+            <p className="shrink-0 text-sm text-spotle-navy/70 sm:text-base">
               {webrtc.cameraReady ? 'Camera ready' : 'Starting camera…'}
             </p>
 
@@ -677,16 +727,31 @@ useEffect(() => {
                 type="button"
                 onClick={game.startGame}
                 disabled={players.length < 1}
-                className={`${arcadeButtonClass} relative z-50`}
+                className={`${lobbyButtonClass} relative z-50`}
               >
                 START GAME
               </button>
             ) : (
-              <p className="text-xl">Waiting for the host to start…</p>
+              <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
-            <button type="button" onClick={leaveGame} className={`${arcadeButtonClass} relative z-50`}>
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              className={`${lobbyButtonClass} relative z-50`}
+            >
+              {getTheme(room!.settings.theme)?.name ?? 'Themes'}
+            </button>
+            <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
             </button>
+
+            {isThemeModalOpen && (
+              <ThemePicker
+                selected={room!.settings.theme}
+                onSelect={game.setTheme}
+                onClose={() => setIsThemeModalOpen(false)}
+              />
+            )}
           </div>
         </main>
       </div>

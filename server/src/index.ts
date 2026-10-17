@@ -166,6 +166,15 @@ io.on('connection', (socket) => {
     if (room) broadcastRoom(io, room);
   });
 
+  socket.on('room:set-theme', ({ theme }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    // Host-only, and only while the game has not started.
+    if (!room || room.hostId !== socket.id || room.status !== 'LOBBY') return;
+    room.settings.theme = theme;
+    broadcastRoom(io, room);
+    console.log(`[room] ${room.roomCode} theme set to ${theme ?? 'ANY'}`);
+  });
+
   socket.on('game:start', () => {
     const room = pin ? getRoom(pin) : undefined;
     if (!room || room.hostId !== socket.id) return;

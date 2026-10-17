@@ -19,3 +19,19 @@ body {
   margin: 0;
   font-family: 'BoldsPixels', cursive;
 }
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    filter: grayscale(50%);
+  }
+
+  to {
+    opacity: 0;
+    filter: grayscale(100%);
+  }
+}
+
+.animate-fade-out-print {
+  animation: fadeOut 8s forwards ease-in;
+}

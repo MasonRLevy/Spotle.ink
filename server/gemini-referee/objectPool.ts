@@ -274,6 +274,27 @@ export function getObjectById(id: string): FindableObject | undefined {
   return OBJECT_POOL.find((obj) => obj.id === id);
 }
 
+/**
+ * Interim mapping used only for items that do not yet carry `themes`.
+ *
+ * The new dataset gives every item an explicit `themes` array; once it lands
+ * this fallback stops being consulted and can be deleted.
+ */
+const CATEGORY_THEME_FALLBACK: Record<string, string[]> = {
+  HOUSEHOLD: ["HOME"],
+  HACKATHON_CAMPUS: ["UF"],
+};
+
+/** Themes an item belongs to - explicit data first, category fallback second. */
+export function themesForObject(obj: FindableObject): string[] {
+  if (obj.themes?.length) return obj.themes.map((t) => t.toUpperCase());
+  return CATEGORY_THEME_FALLBACK[obj.category] ?? [];
+}
+
+export function objectMatchesTheme(obj: FindableObject, theme: string): boolean {
+  return themesForObject(obj).includes(theme.trim().toUpperCase());
+}
+
 export function getRandomTargetObject(
   options: RandomObjectOptions = {},
 ): FindableObject | null {
@@ -281,10 +302,13 @@ export function getRandomTargetObject(
   const difficulty = options.difficulty?.trim().toUpperCase();
   const exclude = new Set((options.excludeIds ?? []).filter(Boolean));
 
+  const theme = options.theme?.trim().toUpperCase();
+
   const filtered = OBJECT_POOL.filter((obj) => {
     if (exclude.has(obj.id)) return false;
     if (category && category !== "ALL" && obj.category !== category) return false;
     if (difficulty && obj.difficulty !== difficulty) return false;
+    if (theme && theme !== "ALL" && !objectMatchesTheme(obj, theme)) return false;
     return true;
   });
 

@@ -62,12 +62,15 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
   const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
   const forced = forcedId ? getObjectById(forcedId) : undefined;
 
-  const target = forced ?? getRandomTargetObject({ excludeIds: room.usedObjects });
+  const theme = room.settings.theme;
+  const target =
+    forced ?? getRandomTargetObject({ theme, excludeIds: room.usedObjects });
   if (!target) {
-    // Pool exhausted - recycle rather than stalling the game.
+    // Every themed item has been used - recycle rather than stalling, but stay
+    // inside the chosen theme.
     room.usedObjects = [];
   }
-  const pick = target ?? getRandomTargetObject({});
+  const pick = target ?? getRandomTargetObject({ theme });
   if (!pick) {
     io.to(room.roomCode).emit('game:error', { message: 'Object pool is empty.' });
     return;

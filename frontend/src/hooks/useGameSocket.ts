@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
+  ThemeId,
   JoinAck,
   RoomState,
   RoundData,
@@ -39,6 +40,7 @@ export interface UseGameSocket {
   createRoom: (name: string) => Promise<JoinAck>;
   joinRoom: (pin: string, name: string) => Promise<JoinAck>;
   registerPeerId: (peerId: string) => void;
+  setTheme: (theme: ThemeId | null) => void;
   startGame: () => void;
   sendAttempt: (imageDataUrl: string) => void;
   giveUp: () => void;
@@ -134,6 +136,10 @@ export function useGameSocket(): UseGameSocket {
     socketRef.current?.emit('peer:register', { peerId });
   }, []);
 
+  const setTheme = useCallback((theme: ThemeId | null) => {
+    socketRef.current?.emit('room:set-theme', { theme });
+  }, []);
+
   const startGame = useCallback(() => {
     socketRef.current?.emit('game:start');
   }, []);
@@ -167,6 +173,7 @@ export function useGameSocket(): UseGameSocket {
     createRoom,
     joinRoom,
     registerPeerId,
+    setTheme,
     startGame,
     sendAttempt,
     giveUp,
