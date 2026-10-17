@@ -672,6 +672,7 @@ useEffect(() => {
       totalRounds={room!.settings.totalRounds}
       elapsedSeconds={elapsedSeconds}
       isCountdown={room!.status === 'COUNTDOWN'}
+      countdownNumber={countdownNumber}
       canPress={me?.status === 'SEARCHING'}
       canSkip={
         room!.status === 'HUNTING'
@@ -892,6 +893,7 @@ function PlayingScreen({
   totalRounds,
   elapsedSeconds,
   isCountdown,
+  countdownNumber,
   canPress,
   canSkip,
   flashing,
@@ -917,6 +919,7 @@ function PlayingScreen({
   totalRounds: number;
   elapsedSeconds: number;
   isCountdown: boolean;
+  countdownNumber: number | null;
   canPress: boolean;
   canSkip: boolean;
   flashing: boolean;
@@ -1079,8 +1082,13 @@ function PlayingScreen({
       </nav>
 
       {isCountdown && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-spotle-navy/85">
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-spotle-navy/85 gap-4">
           <p className="text-center text-4xl text-spotle-coral md:text-6xl">GET READY!</p>
+          {countdownNumber !== null && (
+            <p className="text-center text-8xl text-spotle-cream animate-pulse font-bold">
+              {countdownNumber}
+            </p>
+          )}
         </div>
       )}
     </main>
