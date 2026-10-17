@@ -9,8 +9,9 @@ import { useEffect, useRef } from 'react';
  * (The camera starts while players are still in the lobby, so both orders
  * genuinely happen.)
  *
- * AUDIO: only the local tile is muted. Muting it prevents hearing yourself
- * echo; leaving remote tiles unmuted is what actually plays voice chat.
+ * AUDIO: every tile is muted. Remote voice is played by useWebRTC through
+ * dedicated audio elements that survive the lobby -> round transition, so an
+ * unmuted tile here would play the same stream a second time.
  */
 interface LobbyCamTileProps {
   stream: MediaStream | null | undefined;
@@ -65,7 +66,7 @@ export function LobbyCamTile({
             }
           }}
           autoPlay
-          muted={isLocal}
+          muted
           playsInline
           className={`h-full w-full object-cover ${mirrored ? 'scale-x-[-1]' : ''}`}
           aria-label={`${label} camera`}

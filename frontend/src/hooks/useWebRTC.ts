@@ -91,6 +91,7 @@ export function useWebRTC(options: {
   const localPlayerIdRef = useRef(localPlayerId);
   const facingRef = useRef<FacingMode>(INITIAL_FACING_MODE);
   const fallbackTimersRef = useRef<number[]>([]);
+  const remoteAudioRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   remotePeersRef.current = remotePeers;
   onPeerIdRef.current = onLocalPeerId;
@@ -253,6 +254,19 @@ export function useWebRTC(options: {
             audio: false,
             video: VIDEO_CONSTRAINTS(facingRef.current),
           });
+        }
+
+        // iOS routes WebRTC audio to the earpiece ("call mode") unless told
+        // otherwise, which makes everyone sound faint. Safari 17+ exposes
+        // audioSession; 'play-and-record' is the correct category for voice
+        // chat and routes to the loudspeaker. Harmless where unsupported.
+        try {
+          const audioSession = (navigator as unknown as {
+            audioSession?: { type: string };
+          }).audioSession;
+          if (audioSession) audioSession.type = 'play-and-record';
+        } catch {
+          /* unsupported browser */
         }
 
         const audioTracks = stream.getAudioTracks();
@@ -451,6 +465,72 @@ export function useWebRTC(options: {
       }
     }
   }, [voiceEnabled, remoteMedia]);
+
+  /**
+   * Play remote audio through dedicated HTMLAudioElements rather than the
+   * <video> tiles.
+   *
+   * Two reasons. The tiles unmount when the lobby gives way to the round, so
+   * tile-based audio cuts out exactly when the game starts. And mobile
+   * Safari refuses to autoplay UNMUTED media outside a user gesture, so the
+   * tile's play() was being rejected and silently swallowed - you saw video
+   * but heard nothing. These elements live outside React's tree, survive
+   * every view change, and are retried on the first user gesture.
+   */
+  useEffect(() => {
+    const els = remoteAudioRef.current;
+
+    for (const [peerId, media] of Object.entries(remoteMedia)) {
+      let el = els.get(peerId);
+      if (!el) {
+        el = new Audio();
+        el.autoplay = true;
+        // Keeps iOS from taking the video fullscreen / pausing on route change.
+        el.setAttribute('playsinline', '');
+        els.set(peerId, el);
+      }
+      if (el.srcObject !== media.stream) el.srcObject = media.stream;
+      void el.play().catch(() => {
+        /* blocked until a gesture; the listener below retries */
+      });
+    }
+
+    // Drop players who left so their audio stops.
+    for (const [peerId, el] of els) {
+      if (!remoteMedia[peerId]) {
+        el.pause();
+        el.srcObject = null;
+        els.delete(peerId);
+      }
+    }
+  }, [remoteMedia]);
+
+  // Mobile browsers only allow unmuted playback to start from a gesture.
+  useEffect(() => {
+    const retry = () => {
+      for (const el of remoteAudioRef.current.values()) {
+        void el.play().catch(() => {});
+      }
+    };
+    document.addEventListener('pointerdown', retry);
+    document.addEventListener('touchend', retry);
+    return () => {
+      document.removeEventListener('pointerdown', retry);
+      document.removeEventListener('touchend', retry);
+    };
+  }, []);
+
+  // Stop every remote audio element when the hook tears down.
+  useEffect(() => {
+    const els = remoteAudioRef.current;
+    return () => {
+      for (const el of els.values()) {
+        el.pause();
+        el.srcObject = null;
+      }
+      els.clear();
+    };
+  }, []);
 
   const captureJpeg = useCallback((options: CaptureFrameOptions = {}) => {
     const video = localVideoEl.current;

@@ -12,7 +12,7 @@ import type {
 } from '../../shared/game.js';
 import { pointsForPlacement } from '../../shared/game.js';
 import { verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
-import { MASTER_ITEM_DATABASE, pickThemeTarget } from './data/itemRegistry.js';
+import { MASTER_ITEM_DATABASE, pickRoundTarget } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
 
 type GameServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -160,7 +160,8 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
     return;
   }
 
-  const theme = room.settings.theme ?? 'GENERAL';
+  // null theme = no filter; draw from the whole database.
+  const theme = room.settings.theme;
   const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
   // Resolve the override separately: `(forcedId && find(...)) ?? fallback`
   // yields '' when the env var is set but empty, because ?? only catches
@@ -168,7 +169,7 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
   const forced = forcedId
     ? MASTER_ITEM_DATABASE.find((item) => item.id === forcedId)
     : undefined;
-  const pick = forced ?? pickThemeTarget(theme, room.usedObjects);
+  const pick = forced ?? pickRoundTarget(room.usedObjects, theme);
 
   const round: RoundData = {
     roundNumber,

@@ -14,7 +14,8 @@ const DEFAULT_SETTINGS: RoomState['settings'] = {
   totalRounds: 10,
   roundTimeLimitSec: 90,
   mode: 'OBJECTS',
-  theme: 'GENERAL',
+  // No theme until the host picks one, so the lobby button reads "Themes".
+  theme: null,
 };
 
 /** 6-digit numeric PIN, matching the join modal in the UI. */
