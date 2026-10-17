@@ -696,7 +696,7 @@ function PlayingScreen({
                 Object.values(remoteMedia).find((m) => m.playerId === player.id)?.stream
               }
               facingMode={facingMode}
-              showCrown={player.placement === 1 && refereePlayerId !== player.id}
+              showCrown={player.placement === 1}
               isFlashing={flashing && isLocal}
               nameOnRight={
                 (players.length === 2 && index === 1)
