@@ -37,6 +37,9 @@ type PastChest = LobbyPoint & { id: number };
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
 
+const lobbyButtonClass =
+  'w-full shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-5 py-2.5 text-base text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:py-4 sm:text-xl';
+
 const taskbarHeightClass = 'h-32';
 
 function formatTime(seconds: number) {
@@ -670,18 +673,21 @@ useEffect(() => {
           {renderInkMiniGame()}
         </div>
 
-        <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-          <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
-            <p className="rounded-full border-4 border-spotle-cream bg-spotle-navy px-8 py-4 text-2xl text-spotle-coral">
+        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:p-6">
+          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:gap-5 sm:py-4">
+            <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
               PIN: {room!.roomCode}
             </p>
-            <ul className="grid w-full shrink-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-3">
+            {/* The grid is the only flexible row: it gives up height first so
+                the PIN and the buttons always stay on screen. Capped at its own
+                width so tiles stay square on roomy screens. */}
+            <ul className="grid min-h-0 w-full flex-1 grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:gap-3" style={{ maxHeight: 'min(92vw, 28rem)' }}>
               {Array.from({ length: maxPlayers }, (_, index) => {
                 const player = players[index];
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="aspect-square min-h-0 min-w-0 w-full overflow-hidden break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy text-center text-lg text-spotle-coral"
+                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:rounded-[2rem] sm:text-lg"
                   >
                     {player ? (
                       <LobbyCamTile
@@ -710,9 +716,9 @@ useEffect(() => {
             </ul>
 
             {webrtc.error && (
-              <p className="text-base text-red-700">{webrtc.error}</p>
+              <p className="shrink-0 text-sm text-red-700 sm:text-base">{webrtc.error}</p>
             )}
-            <p className="text-base text-spotle-navy/70">
+            <p className="shrink-0 text-sm text-spotle-navy/70 sm:text-base">
               {webrtc.cameraReady ? 'Camera ready' : 'Starting camera…'}
             </p>
 
@@ -721,21 +727,21 @@ useEffect(() => {
                 type="button"
                 onClick={game.startGame}
                 disabled={players.length < 1}
-                className={`${arcadeButtonClass} relative z-50`}
+                className={`${lobbyButtonClass} relative z-50`}
               >
                 START GAME
               </button>
             ) : (
-              <p className="text-xl">Waiting for the host to start…</p>
+              <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
             <button
               type="button"
               onClick={() => setIsThemeModalOpen(true)}
-              className={`${arcadeButtonClass} relative z-50`}
+              className={`${lobbyButtonClass} relative z-50`}
             >
               {getTheme(room!.settings.theme)?.name ?? 'Themes'}
             </button>
-            <button type="button" onClick={leaveGame} className={`${arcadeButtonClass} relative z-50`}>
+            <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
             </button>
 
