@@ -2,5 +2,11 @@
   "dependencies": {
     "lucide-react": "^1.58.0",
     "peerjs": "^1.5.5"
+  },
+  "name": "spotle.ink",
+  "private": true,
+  "scripts": {
+    "test:referee": "npm run test:referee --prefix server",
+    "test:referee:suite": "npm run test:referee:suite --prefix server"
   }
 }

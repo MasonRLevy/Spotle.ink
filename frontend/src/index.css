@@ -1,4 +1,13 @@
 @import 'tailwindcss';
+@config "../tailwind.config.js";
+
+@font-face {
+  font-family: 'BoldsPixels';
+  src: url('./assets/BoldsPixels.ttf') format('truetype');
+  font-style: normal;
+  font-weight: normal;
+  font-display: swap;
+}
 
 html,
 body,
@@ -8,4 +17,5 @@ body,
 
 body {
   margin: 0;
+  font-family: 'BoldsPixels', cursive;
 }

@@ -1,0 +1,29 @@
+# Secrets — never commit API keys
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build
+dist/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Local Python venv (if present)
+.venv/
+
+# Role 4 referee test fixtures (third-party Wikimedia images + generated PNGs)
+# Regenerate with: cd server && npm run test:referee:fixtures
+server/gemini-referee/testdata/

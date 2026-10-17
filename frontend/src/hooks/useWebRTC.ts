@@ -159,6 +159,12 @@ export function useWebRTC(options: {
 
     async function start() {
       setError(null);
+
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -258,6 +264,11 @@ export function useWebRTC(options: {
   const flipCamera = useCallback(async () => {
     const current = streamRef.current;
     if (!current || isFlipping) return;
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
+      return;
+    }
 
     const nextFacing: FacingMode = facingRef.current === 'user' ? 'environment' : 'user';
     setIsFlipping(true);
