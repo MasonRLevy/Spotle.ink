@@ -12,6 +12,8 @@ import spotleLogo from './assets/Spotle_Logo.png';
 import dogMouthClosed from './assets/Spot_mouth_closed.png';
 import dogMouthOpen from './assets/Spot_mouth_open.png';
 import inkRunning from './assets/Ink_running.gif';
+import inkSitting from './assets/Ink_sit.png';
+import inkHouse from './assets/Ink_house.png';
 import inkPaw from './assets/Ink_paw.png';
 import xMarksTheSpot from './assets/X_marks_the_spot.png';
 import treasureChest from './assets/Treasure_Chest.png';
@@ -26,8 +28,9 @@ import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
 
 const maxPlayers = 4;
-const dogSpeed = 2;
-const pawPrintSpacing = 50;
+const mobileDogSpeed = 2;
+const desktopDogSpeed = 3.2;
+const pawPrintSpacing = 40;
 const maxPawPrints = 100;
 
 type LobbyPoint = { x: number; y: number };
@@ -75,12 +78,15 @@ export default function App() {
   const [activeX, setActiveX] = useState<LobbyPoint | null>(null);
   const [pastChests, setPastChests] = useState<PastChest[]>([]);
   const [pawPrints, setPawPrints] = useState<PawPrint[]>([]);
+  const [isMoving, setIsMoving] = useState(false);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
   const correctAudio = useRef(new Audio(correctAudioSrc));
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
   const lobbyRef = useRef<HTMLDivElement | null>(null);
   const dogRef = useRef<HTMLImageElement | null>(null);
+  const mobileHouseRef = useRef<HTMLImageElement | null>(null);
+  const desktopHouseRef = useRef<HTMLImageElement | null>(null);
   const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
   const dogScaleRef = useRef(1);
   const targetPositionRef = useRef<LobbyPoint | null>(null);
@@ -88,10 +94,10 @@ export default function App() {
   const routeProgressRef = useRef(0);
   const routeLengthRef = useRef(0);
   const routeStartRef = useRef<LobbyPoint>({ x: 0, y: 0 });
-  const routeBendRef = useRef(1);
   const miniGameItemIdRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
-  const pawDistanceRef = useRef(0);
+  const idleTimerRef = useRef<number | null>(null);
+  const lastPrintPositionRef = useRef<LobbyPoint | null>(null);
   const dogPositionInitializedRef = useRef(false);
 
   const room = game.room;
@@ -100,7 +106,6 @@ export default function App() {
   const isHost = Boolean(me?.isHost);
   const round = game.round;
   const inRoom = Boolean(room);
-  const isHomeOrLobby = !inRoom || room?.status === 'LOBBY';
   const allPlayersSettled =
     players.length > 0
     && players.every((player) => player.status === 'FOUND' || player.status === 'SKIPPED');
@@ -214,10 +219,14 @@ useEffect(() => {
   }, [isTalking, refereeMessage]);
 
   useEffect(() => {
-    if (!isHomeOrLobby) {
+    if (inRoom) {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
+      }
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
       }
       return;
     }
@@ -225,32 +234,18 @@ useEffect(() => {
     const lobby = lobbyRef.current;
     if (!lobby) return;
 
-    if (!dogPositionInitializedRef.current) {
-      dogPositionRef.current = {
-        x: Math.min(100, lobby.clientWidth / 2),
-        y: Math.max(100, lobby.clientHeight - 120),
-      };
-      dogPositionInitializedRef.current = true;
-    }
-    if (!targetPositionRef.current) {
-      const initialTarget = {
-        x: lobby.clientWidth * 0.82,
-        y: lobby.clientHeight * 0.38,
-      };
-      targetPositionRef.current = initialTarget;
-      setActiveX(initialTarget);
-    }
-    const { x, y } = dogPositionRef.current;
-    if (dogRef.current) {
-      dogRef.current.style.transform =
-        `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(${dogScaleRef.current})`;
-    }
-  }, [isHomeOrLobby]);
+    initializeDogNearHouse();
+    scheduleIdleReturn();
+
+  }, [inRoom]);
 
   useEffect(
     () => () => {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (idleTimerRef.current !== null) {
+        window.clearTimeout(idleTimerRef.current);
       }
     },
     [],
@@ -344,52 +339,76 @@ useEffect(() => {
     game.skip();
   }
 
-  function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
+  function getHousePosition() {
+    const lobby = lobbyRef.current;
+    if (!lobby) return null;
+    const house = [mobileHouseRef.current, desktopHouseRef.current].find(
+      (candidate) =>
+        candidate
+        && candidate.naturalWidth > 0
+        && candidate.getBoundingClientRect().width > 0,
+    );
+    if (!house) return null;
+
+    const lobbyBounds = lobby.getBoundingClientRect();
+    const houseBounds = house.getBoundingClientRect();
+    return {
+      x: houseBounds.left - lobbyBounds.left + houseBounds.width / 2,
+      y: houseBounds.top - lobbyBounds.top + houseBounds.height / 2,
+      width: houseBounds.width,
+      height: houseBounds.height,
+    };
+  }
+
+  function initializeDogNearHouse() {
+    const lobby = lobbyRef.current;
+    const house = getHousePosition();
+    if (!lobby || !house || dogPositionInitializedRef.current) return;
+
+    dogPositionRef.current = {
+      x: Math.min(lobby.clientWidth - 24, house.x + house.width * 0.55),
+      y: Math.min(lobby.clientHeight - 24, house.y + house.height * 0.25),
+    };
+    dogPositionInitializedRef.current = true;
+    if (dogRef.current) {
+      dogRef.current.style.transform =
+        `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`;
+    }
+  }
+
+  function startDogMovement(target: LobbyPoint, returningToHouse = false) {
     const lobby = lobbyRef.current;
     if (!lobby) return;
-
-    const bounds = lobby.getBoundingClientRect();
-    const target = {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-    };
-
-    if (!dogPositionInitializedRef.current) {
-      dogPositionRef.current = {
-        x: Math.min(100, lobby.clientWidth / 2),
-        y: Math.max(100, lobby.clientHeight - 120),
-      };
-      dogPositionInitializedRef.current = true;
-    }
+    initializeDogNearHouse();
 
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
     }
 
+    setIsMoving(true);
     targetPositionRef.current = target;
     const start = dogPositionRef.current;
     routeStartRef.current = start;
     const dx = target.x - start.x;
     const dy = target.y - start.y;
     const directDistance = Math.hypot(dx, dy);
-    const bendDistance = 200 + Math.random() * 200;
-    const bendDirection = Math.random() < 0.5 ? -1 : 1;
-    routeBendRef.current = bendDirection;
+    const nx = directDistance === 0 ? 0 : -dy / directDistance;
+    const ny = directDistance === 0 ? 0 : dx / directDistance;
+    const midX = (start.x + target.x) / 2;
+    const midY = (start.y + target.y) / 2;
+    const rand = Math.random();
+    let offsetMag = 0;
+    if (rand < 0.25) {
+      offsetMag = 0;
+    } else if (rand < 0.5) {
+      offsetMag = Math.random() * 400 + 300;
+    } else {
+      offsetMag = Math.random() * 150 + 50;
+    }
+    offsetMag *= Math.random() > 0.5 ? 1 : -1;
     routeControlRef.current = {
-      x: Math.max(
-        48,
-        Math.min(
-          bounds.width - 48,
-          (start.x + target.x) / 2 - (dy / (directDistance || 1)) * bendDistance * bendDirection,
-        ),
-      ),
-      y: Math.max(
-        48,
-        Math.min(
-          bounds.height - 48,
-          (start.y + target.y) / 2 + (dx / (directDistance || 1)) * bendDistance * bendDirection,
-        ),
-      ),
+      x: midX + nx * offsetMag,
+      y: midY + ny * offsetMag,
     };
     routeProgressRef.current = 0;
     let sampledPathLength = 0;
@@ -409,8 +428,24 @@ useEffect(() => {
       previousPoint = point;
     }
     routeLengthRef.current = sampledPathLength;
-    pawDistanceRef.current = 0;
-    setActiveX(target);
+    const initialTangent = Math.atan2(
+      routeControlRef.current.y - start.y,
+      routeControlRef.current.x - start.x,
+    );
+    lastPrintPositionRef.current = start;
+    setPawPrints((prints) => [
+      ...prints,
+      {
+        id: miniGameItemIdRef.current++,
+        x: start.x,
+        y: start.y,
+        angle: (initialTangent * 180) / Math.PI,
+      },
+    ].slice(-maxPawPrints));
+    setActiveX(returningToHouse ? null : target);
+    const speed = window.matchMedia('(min-width: 768px)').matches
+      ? desktopDogSpeed
+      : mobileDogSpeed;
 
     const animateDog = () => {
       const current = dogPositionRef.current;
@@ -423,22 +458,26 @@ useEffect(() => {
 
       if (routeLengthRef.current < 5 || routeProgressRef.current >= 1) {
         dogPositionRef.current = destination;
+        dogScaleRef.current = destination.x < current.x ? -1 : 1;
         dog.style.transform =
-          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(1)`;
+          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dogScaleRef.current})`;
         animationFrameRef.current = null;
         targetPositionRef.current = null;
+        setIsMoving(false);
         setActiveX(null);
-        setPastChests((chests) => [
-          ...chests,
-          { ...destination, id: miniGameItemIdRef.current++ },
-        ]);
+        if (!returningToHouse) {
+          setPastChests((chests) => [
+            ...chests,
+            { ...destination, id: miniGameItemIdRef.current++ },
+          ]);
+        }
         return;
       }
 
       const oldProgress = routeProgressRef.current;
       routeProgressRef.current = Math.min(
         1,
-        oldProgress + dogSpeed / routeLengthRef.current,
+        oldProgress + speed / routeLengthRef.current,
       );
       const t = routeProgressRef.current;
       const inverseT = 1 - t;
@@ -456,18 +495,18 @@ useEffect(() => {
         + 2 * t * (destination.x - control.x);
       const tangentY = 2 * inverseT * (control.y - startPoint.y)
         + 2 * t * (destination.y - control.y);
-      const dx = next.x - current.x;
-      const dy = next.y - current.y;
-      const step = Math.hypot(dx, dy);
       const angle = Math.atan2(tangentY, tangentX);
       dogPositionRef.current = next;
-      dogScaleRef.current = dx < 0 ? -1 : 1;
+      dogScaleRef.current = destination.x < current.x ? -1 : 1;
       dog.style.transform =
-        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) rotate(${angle}rad) scaleX(${dogScaleRef.current})`;
+        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
 
-      pawDistanceRef.current += step;
-      while (pawDistanceRef.current >= pawPrintSpacing) {
-        pawDistanceRef.current -= pawPrintSpacing;
+      const lastPrintPosition = lastPrintPositionRef.current;
+      if (
+        lastPrintPosition
+        && Math.hypot(next.x - lastPrintPosition.x, next.y - lastPrintPosition.y)
+          >= pawPrintSpacing
+      ) {
         setPawPrints((prints) => [
           ...prints,
           {
@@ -477,12 +516,45 @@ useEffect(() => {
             angle: (angle * 180) / Math.PI,
           },
         ].slice(-maxPawPrints));
+        lastPrintPositionRef.current = next;
       }
 
       animationFrameRef.current = window.requestAnimationFrame(animateDog);
     };
 
     animationFrameRef.current = window.requestAnimationFrame(animateDog);
+  }
+
+  function scheduleIdleReturn() {
+    if (idleTimerRef.current !== null) {
+      window.clearTimeout(idleTimerRef.current);
+    }
+    idleTimerRef.current = window.setTimeout(() => {
+      idleTimerRef.current = null;
+      const house = getHousePosition();
+      if (!house) return;
+      startDogMovement(
+        {
+          x: house.x + house.width * 0.55 + (Math.random() * 40 - 20),
+          y: house.y + house.height * 0.25 + (Math.random() * 30 - 15),
+        },
+        true,
+      );
+    }, 10_000);
+  }
+
+  function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
+    const lobby = lobbyRef.current;
+    if (!lobby) return;
+
+    const bounds = lobby.getBoundingClientRect();
+    const target = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+
+    scheduleIdleReturn();
+    startDogMovement(target);
   }
 
   function renderInkMiniGame() {
@@ -540,10 +612,10 @@ useEffect(() => {
 
         <img
           ref={dogRef}
-          src={inkRunning}
+          src={isMoving ? inkRunning : inkSitting}
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 z-10 h-48 w-48 select-none object-contain"
+          className={`pointer-events-none absolute left-0 top-0 z-10 h-48 w-48 select-none object-contain ${isMoving ? '' : 'mix-blend-multiply'}`}
           style={{
             transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
@@ -562,7 +634,7 @@ useEffect(() => {
       <div
         ref={lobbyRef}
         onClick={handleLobbyClick}
-        className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
+        className="relative h-full min-h-screen w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
         <div
           aria-hidden="true"
@@ -570,9 +642,25 @@ useEffect(() => {
         >
           {renderInkMiniGame()}
         </div>
+        <img
+          ref={desktopHouseRef}
+          src={inkHouse}
+          alt=""
+          aria-hidden="true"
+          onLoad={initializeDogNearHouse}
+          className="absolute bottom-6 left-6 z-40 hidden h-auto w-40 select-none object-contain mix-blend-multiply md:block md:w-48"
+        />
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-5">
+              <img
+                ref={mobileHouseRef}
+                src={inkHouse}
+                alt=""
+                aria-hidden="true"
+                onLoad={initializeDogNearHouse}
+                className="h-auto w-28 select-none object-contain mix-blend-multiply md:hidden"
+              />
               <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
               <label className="w-full text-center text-xl">
                 Your Name
@@ -662,17 +750,8 @@ useEffect(() => {
   if (room!.status === 'LOBBY') {
     return (
       <div
-        ref={lobbyRef}
-        onClick={handleLobbyClick}
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
-        >
-          {renderInkMiniGame()}
-        </div>
-
         <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:p-6">
           <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:gap-5 sm:py-4">
             <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
