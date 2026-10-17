@@ -8,7 +8,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
-  ThemeId,
+  GameMode,
+  ThemeType,
   JoinAck,
   RoomState,
   RoundData,
@@ -41,6 +42,8 @@ export interface UseGameSocket {
   joinRoom: (pin: string, name: string) => Promise<JoinAck>;
   registerPeerId: (peerId: string) => void;
   setTheme: (theme: ThemeId | null) => void;
+  setMode: (mode: GameMode) => void;
+  submitSelfie: (selfieBase64: string) => void;
   startGame: () => void;
   sendAttempt: (imageDataUrl: string) => void;
   giveUp: () => void;
@@ -85,6 +88,7 @@ export function useGameSocket(): UseGameSocket {
     socket.on('round:end', (event) => setLastRoundEnd(event));
     socket.on('game:over', (next) => setRoom(next));
     socket.on('game:error', ({ message }) => setError(message));
+    socket.on('PROMPT_SELFIE_REGISTRATION', () => setError(null));
 
     return () => {
       socket.removeAllListeners();
@@ -136,8 +140,16 @@ export function useGameSocket(): UseGameSocket {
     socketRef.current?.emit('peer:register', { peerId });
   }, []);
 
-  const setTheme = useCallback((theme: ThemeId | null) => {
+  const setTheme = useCallback((theme: ThemeType | null) => {
     socketRef.current?.emit('room:set-theme', { theme });
+  }, []);
+
+  const setMode = useCallback((mode: GameMode) => {
+    socketRef.current?.emit('room:set-mode', { mode });
+  }, []);
+
+  const submitSelfie = useCallback((selfieBase64: string) => {
+    socketRef.current?.emit('SUBMIT_SELFIE', { selfieBase64 });
   }, []);
 
   const startGame = useCallback(() => {
@@ -174,6 +186,8 @@ export function useGameSocket(): UseGameSocket {
     joinRoom,
     registerPeerId,
     setTheme,
+    setMode,
+    submitSelfie,
     startGame,
     sendAttempt,
     giveUp,

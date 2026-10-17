@@ -9,32 +9,37 @@
 export type RoomStatus =
   | 'LOBBY'
   | 'COUNTDOWN'
+  | 'SELFIE_REGISTRATION'
   | 'HUNTING'
   | 'ROUND_RESULT'
   | 'GAME_OVER';
 
+export type GameMode = 'OBJECTS' | 'ME';
+export type ThemeType = 'UF_SWAMP' | 'HACKATHON' | 'GENERAL' | 'OUTDOORS';
+export type VisualType = 'emoji' | 'lucide' | 'image';
+
 /**
- * Selectable item themes.
- *
- * `id` is what the server filters the object pool by. When the new item
- * dataset lands, each item carries a `themes: ThemeId[]` property and a round
- * only draws from items containing the room's theme.
+ * Legacy/theme compatibility buffer for older clients while the new theme set
+ * is adopted across the app.
  */
-export type ThemeId = 'HOME' | 'UF';
+export type ThemeId = ThemeType | 'HOME' | 'UF';
 
 export interface GameTheme {
-  id: ThemeId;
+  id: ThemeType;
   name: string;
-  /** Shown as the tile icon in the theme picker. */
   emoji: string;
 }
 
 export const GAME_THEMES: GameTheme[] = [
-  { id: 'HOME', name: 'Home', emoji: '\u{1F3E0}' },
-  { id: 'UF', name: 'UF', emoji: '\u{1F40A}' },
+  { id: 'UF_SWAMP', name: 'UF / Swamp', emoji: '🐊' },
+  { id: 'HACKATHON', name: 'Hackathon', emoji: '💻' },
+  { id: 'GENERAL', name: 'General Indoor', emoji: '🏠' },
+  { id: 'OUTDOORS', name: 'Outdoors', emoji: '🌳' },
 ];
 
 export function getTheme(id: ThemeId | null | undefined): GameTheme | undefined {
+  if (id === 'HOME') id = 'GENERAL';
+  if (id === 'UF') id = 'UF_SWAMP';
   return GAME_THEMES.find((t) => t.id === id);
 }
 
@@ -53,6 +58,18 @@ export type MatchQuality =
   | 'NOT_FOUND'
   | 'SCREEN_CHEAT';
 
+export interface ScavengerItem {
+  id: string;
+  name: string;
+  themes: ThemeType[];
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  hint: string;
+  visualType: VisualType;
+  visualValue: string;
+  aliases: string[];
+  cheatRisks: string[];
+}
+
 export interface Player {
   id: string;
   peerId: string;
@@ -60,6 +77,9 @@ export interface Player {
   score: number;
   status: PlayerStatus;
   isHost: boolean;
+  selfieBase64?: string;
+  selfieReady?: boolean;
+  targetPlayerId?: string;
   /** Set once this player has been verified in the current round. */
   placement?: number;
   reactionMs?: number;
@@ -75,26 +95,34 @@ export interface ImageAttribution {
 
 export interface RoundData {
   roundNumber: number;
-  /** Object id from the curated pool, e.g. "coffee-mug". */
-  targetId: string;
+  mode: GameMode;
+  targetId?: string;
   targetObject: string;
-  /** Fluent flat SVG shown dead-center as the on-screen prompt. */
-  targetIconUrl: string;
-  imageAttribution?: ImageAttribution;
   hint: string;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  visualType?: VisualType;
+  visualValue?: string;
+  targetPlayerId?: string;
+  targetPlayerSelfie?: string;
   startTime: number;
-  /** Player ids in the order they were verified. */
   finishers: string[];
+  winnerId?: string;
+  refereeCommentary?: string;
+  /** legacy flat-SVG target image used by the older UI */
+  targetIconUrl?: string;
+  imageAttribution?: ImageAttribution;
 }
 
 export interface RoundStartPayload {
   roundNumber: number;
+  mode: GameMode;
   targetObject: string;
   hint: string;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
-  visualType?: 'emoji' | 'lucide' | 'image';
+  visualType?: VisualType;
   visualValue?: string;
+  targetPlayerId?: string;
+  targetPlayerSelfie?: string;
   startTime: number;
 }
 
@@ -102,8 +130,8 @@ export interface RoomSettings {
   maxPlayers: number;
   totalRounds: number;
   roundTimeLimitSec: number;
-  /** null means "any item" - no theme filter applied. */
-  theme: ThemeId | null;
+  mode: GameMode;
+  theme: ThemeType | null;
 }
 
 export interface RoomState {
@@ -140,6 +168,7 @@ export function pointsForPlacement(placement: number): number {
 
 export interface CreateRoomPayload {
   name: string;
+  mode?: GameMode;
 }
 
 export interface JoinRoomPayload {
@@ -163,11 +192,9 @@ export interface VerdictEvent {
   playerId: string;
   playerName: string;
   verdict: VerificationResponse;
-  /** Present only when the attempt was accepted. */
   placement?: number;
   pointsAwarded?: number;
   reactionMs?: number;
-  /** Milliseconds of cooldown applied after a rejected attempt. */
   cooldownMs?: number;
 }
 
@@ -182,11 +209,13 @@ export interface ClientToServerEvents {
   'room:create': (payload: CreateRoomPayload, ack: (res: JoinAck) => void) => void;
   'room:join': (payload: JoinRoomPayload, ack: (res: JoinAck) => void) => void;
   'peer:register': (payload: { peerId: string }) => void;
-  'room:set-theme': (payload: { theme: ThemeId | null }) => void;
+  'room:set-mode': (payload: { mode: GameMode }) => void;
+  'room:set-theme': (payload: { theme: ThemeType | null }) => void;
   'game:start': () => void;
   'round:attempt': (payload: AttemptPayload) => void;
   'round:give-up': () => void;
   'round:skip': () => void;
+  'SUBMIT_SELFIE': (payload: { selfieBase64: string }) => void;
   'game:reset': () => void;
 }
 
@@ -194,6 +223,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'room:update': (room: RoomState) => void;
   'round:start': (round: RoundData) => void;
+  'PROMPT_SELFIE_REGISTRATION': (payload: { timeoutMs: number }) => void;
   'round:verdict': (event: VerdictEvent) => void;
   'round:end': (event: RoundEndEvent) => void;
   'game:over': (room: RoomState) => void;
