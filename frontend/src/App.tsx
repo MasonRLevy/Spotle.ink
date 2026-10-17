@@ -123,14 +123,24 @@ useEffect(() => {
       return;
     }
 
-    setCountdownNumber(3); // Start at 3
+    setCountdownNumber(3);
     const interval = window.setInterval(() => {
       setCountdownNumber((prev) => {
-        if (prev === null || prev <= 0) {
+        if (prev === null) return null;
+
+        // When reaching 0 ("GO!"), clear the interval but keep countdownNumber = 0
+        if (prev === 1) {
           window.clearInterval(interval);
-          return null; // Clears the countdown overlay when it hits the end
+          
+          // Wait 1 extra second displaying "GO!" before hiding the overlay
+          window.setTimeout(() => {
+            setCountdownNumber(null);
+          }, 1000);
+
+          return 0; // Display "GO!"
         }
-        return prev - 1; // 3 -> 2 -> 1 -> 0
+
+        return prev - 1; // 3 -> 2 -> 1
       });
     }, 1000);
 
