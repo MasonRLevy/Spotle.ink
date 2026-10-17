@@ -13,6 +13,31 @@ export type RoomStatus =
   | 'ROUND_RESULT'
   | 'GAME_OVER';
 
+/**
+ * Selectable item themes.
+ *
+ * `id` is what the server filters the object pool by. When the new item
+ * dataset lands, each item carries a `themes: ThemeId[]` property and a round
+ * only draws from items containing the room's theme.
+ */
+export type ThemeId = 'HOME' | 'UF';
+
+export interface GameTheme {
+  id: ThemeId;
+  name: string;
+  /** Shown as the tile icon in the theme picker. */
+  emoji: string;
+}
+
+export const GAME_THEMES: GameTheme[] = [
+  { id: 'HOME', name: 'Home', emoji: '\u{1F3E0}' },
+  { id: 'UF', name: 'UF', emoji: '\u{1F40A}' },
+];
+
+export function getTheme(id: ThemeId | null | undefined): GameTheme | undefined {
+  return GAME_THEMES.find((t) => t.id === id);
+}
+
 export type PlayerStatus =
   | 'READY'
   | 'SEARCHING'
@@ -77,6 +102,8 @@ export interface RoomSettings {
   maxPlayers: number;
   totalRounds: number;
   roundTimeLimitSec: number;
+  /** null means "any item" - no theme filter applied. */
+  theme: ThemeId | null;
 }
 
 export interface RoomState {
@@ -155,6 +182,7 @@ export interface ClientToServerEvents {
   'room:create': (payload: CreateRoomPayload, ack: (res: JoinAck) => void) => void;
   'room:join': (payload: JoinRoomPayload, ack: (res: JoinAck) => void) => void;
   'peer:register': (payload: { peerId: string }) => void;
+  'room:set-theme': (payload: { theme: ThemeId | null }) => void;
   'game:start': () => void;
   'round:attempt': (payload: AttemptPayload) => void;
   'round:give-up': () => void;

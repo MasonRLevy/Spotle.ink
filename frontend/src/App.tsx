@@ -18,7 +18,9 @@ import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
+import { ThemePicker } from './components/ThemePicker';
 import type { Player, RoundData } from '@shared/game';
+import { getTheme } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
@@ -54,6 +56,7 @@ export default function App() {
   const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
   const [joinPin, setJoinPin] = useState('');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [flashing, setFlashing] = useState(false);
@@ -684,9 +687,24 @@ useEffect(() => {
             ) : (
               <p className="text-xl">Waiting for the host to start…</p>
             )}
+            <button
+              type="button"
+              onClick={() => setIsThemeModalOpen(true)}
+              className={`${arcadeButtonClass} relative z-50`}
+            >
+              {getTheme(room!.settings.theme)?.name ?? 'Themes'}
+            </button>
             <button type="button" onClick={leaveGame} className={`${arcadeButtonClass} relative z-50`}>
               Leave
             </button>
+
+            {isThemeModalOpen && (
+              <ThemePicker
+                selected={room!.settings.theme}
+                onSelect={game.setTheme}
+                onClose={() => setIsThemeModalOpen(false)}
+              />
+            )}
           </div>
         </main>
       </div>
