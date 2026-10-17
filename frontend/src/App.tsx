@@ -784,7 +784,7 @@ useEffect(() => {
                 setRouteMarkers((markers) => markers.filter((item) => item.id !== marker.id));
               }
             }}
-            className={`pointer-events-none absolute z-0 h-4 w-4 select-none object-contain mix-blend-multiply transition-opacity duration-1500 ${marker.passed ? 'opacity-0' : 'opacity-20'}`}
+            className={`pointer-events-none absolute z-0 h-4 w-4 select-none object-contain mix-blend-multiply transition-opacity duration-1500 ${marker.passed ? 'opacity-0' : 'opacity-50'}`}
             style={{
               left: marker.x,
               top: marker.y,
