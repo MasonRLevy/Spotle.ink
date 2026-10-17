@@ -142,7 +142,12 @@ export function useWebRTC(options: {
   const bindCall = useCallback(
     (call: MediaConnection) => {
       callsRef.current.set(call.peer, call);
-      call.on('stream', (stream) => rememberRemote(call.peer, stream));
+      call.on('stream', (stream) => {
+        stream.getVideoTracks().forEach((track) => {
+          track.onunmute = () => rememberRemote(call.peer, stream);
+        });
+        rememberRemote(call.peer, stream);
+      });
       call.on('close', () => dropRemote(call.peer));
       call.on('error', (err) => {
         console.warn('[webrtc] call error', call.peer, err);
@@ -158,10 +163,20 @@ export function useWebRTC(options: {
       if (callsRef.current.has(remote.peerId)) return;
 
       const openCall = () => {
-        if (!streamRef.current || callsRef.current.has(remote.peerId)) return;
+        const liveStream = streamRef.current;
         const livePeer = peerRef.current;
-        if (!livePeer?.id) return;
-        const call = livePeer.call(remote.peerId, streamRef.current, {
+        if (!liveStream || liveStream.getVideoTracks().length === 0 || !livePeer?.id) {
+          fallbackTimersRef.current.push(
+            window.setTimeout(() => {
+              if (peerRef.current) {
+                callRemoteIfNeeded(remote, peerRef.current);
+              }
+            }, 250),
+          );
+          return;
+        }
+        if (callsRef.current.has(remote.peerId)) return;
+        const call = livePeer.call(remote.peerId, liveStream, {
           metadata: { playerId: localPlayerIdRef.current, name: localNameRef.current },
         });
         bindCall(call);
@@ -201,6 +216,7 @@ export function useWebRTC(options: {
           stopStream(stream);
           return;
         }
+
         streamRef.current = stream;
         setLocalStream(stream);
         attachLocalVideo(stream);
@@ -221,8 +237,16 @@ export function useWebRTC(options: {
 
         peer.on('call', (call) => {
           const live = streamRef.current;
-          if (!live) {
-            call.close();
+          if (!live || live.getVideoTracks().length === 0) {
+            window.setTimeout(() => {
+              const readyStream = streamRef.current;
+              if (readyStream && readyStream.getVideoTracks().length > 0) {
+                call.answer(readyStream);
+                bindCall(call);
+                return;
+              }
+              call.close();
+            }, 250);
             return;
           }
           call.answer(live);

@@ -458,6 +458,30 @@ function PlayerTile({
       : player.status === 'PENALIZED'
         ? 'COOLDOWN'
         : null;
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (isLocal || !remoteVideoRef.current || !stream) return;
+    const video = remoteVideoRef.current;
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    const handleCanPlay = () => {
+      void video.play().catch((err) => {
+        console.warn('[video] autoplay blocked for remote tile', err);
+      });
+    };
+
+    video.addEventListener('loadedmetadata', handleCanPlay);
+    if (video.readyState >= 1) {
+      handleCanPlay();
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleCanPlay);
+    };
+  }, [isLocal, stream]);
 
   return (
     <section
@@ -478,12 +502,10 @@ function PlayerTile({
         />
       ) : stream ? (
         <video
+          ref={remoteVideoRef}
           autoPlay
           playsInline
           className="h-full w-full object-cover"
-          ref={(el) => {
-            if (el && el.srcObject !== stream) el.srcObject = stream;
-          }}
         />
       ) : null}
 
