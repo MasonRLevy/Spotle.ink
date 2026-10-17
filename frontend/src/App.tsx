@@ -8,9 +8,9 @@ import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
-import correctAudioSrc from './assets/sounds/CorrectImage.mp4';
-import wrongAudioSrc from './assets/sounds/WrongImage.mp4';
-import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp4';
+import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
+import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
+import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
 
 const maxPlayers = 4;
 
