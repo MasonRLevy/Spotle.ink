@@ -1,0 +1,28 @@
+{
+  "name": "spotle-server",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test:referee": "tsx gemini-referee/testServer.ts",
+    "test:referee:suite": "tsx gemini-referee/_testReferee.ts",
+    "test:referee:svgs": "tsx gemini-referee/_verifySvgs.ts",
+    "test:referee:fixtures": "tsx gemini-referee/_fetchFixtures.ts && tsx gemini-referee/_makeCheatFixture.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.2"
+  }
+}

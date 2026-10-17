@@ -21,10 +21,24 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** [Insert Date/Time]
-* **Latest Action:** Initial repository setup, `AGENTS.md` creation, and defining shared `game.ts` data contracts.
-* **Current Focus:** Role 4 is building the isolated `geminiReferee.ts` backend service to test vision validation.
-
+* **Last Updated:** 2026-10-17 (Role 4 — Gemini AI Referee)
+* **Latest Action:** Isolated backend module at `server/gemini-referee/` — does **not** touch the Vite frontend, Socket.io loop, or WebRTC. Curated **74-object** `objectPool` (28 `HACKATHON_CAMPUS` + 46 `HOUSEHOLD`) with Microsoft Fluent UI **Flat SVG** art via jsDelivr; all 74 SVG URLs verified to resolve. Goldilocks Gemini Vision referee with strict structured `VerificationResponse` JSON. Regression suite passes **10/10 at ~1.5s avg**.
+* **MODEL — IMPORTANT FOR ALL ROLES:** `gemini-2.5-flash` (the original spec model) is **dead** — it still appears in ListModels but returns 404 *"no longer available to new users"* on `generateContent` for recently created keys. The referee now defaults to **`gemini-3.1-flash-lite`**, with an automatic fallback chain `gemini-3.1-flash-lite → gemini-3.8-flash → gemini-3.5-flash-lite` on 429/404/503. Override via `GEMINI_MODEL` (single model or comma-separated chain).
+  * **Role 3 / Python backend:** `backend/services/gemini_service.py` still references `gemini-2.5-flash` and will 404 — needs the same model swap.
+* **Timeouts:** 9s per model, 20s total, with real request aborts. Without these a stalled chain hung 68s; it now fails in <1s. Tune with `REFEREE_MODEL_TIMEOUT_MS` / `REFEREE_TOTAL_TIMEOUT_MS`.
+* **Billing:** enabled on the API key project. Cost is ~$0.0004 per verification (~2¢ per 4-player match), so the free-tier 20-req/day cap is no longer a concern.
+* **Object pool note:** 11 objects were removed because their Fluent flat SVG depicted a different item than the target (e.g. Towel showed a bathtub, Remote Control showed a TV). Since the flat SVG sits dead-center as the on-screen prompt, a misleading icon is worse than a smaller pool. Pool is now 74; backfill with icon-accurate items if we want 85+.
+* **How to plug into the main Express server later (2 lines):**
+  ```ts
+  import { refereeRouter } from "./gemini-referee/index.js";
+  app.use(refereeRouter);
+  ```
+* **Exported functions:** `getAllObjects()`, `getObjectById(id)`, `getRandomTargetObject({ category, difficulty, excludeIds })`, `verifyObjectPhoto({ targetObject, imageBase64, playerName })`, `verifyObjectPhotoDetailed(...)` (adds `model` + `skipped`), `checkGeminiApiKey()`, `getModelChain()`
+* **Endpoints:** `GET /api/referee/objects` · `GET /api/referee/random-object?category=&difficulty=&exclude=` · `POST /api/referee/verify` · `GET /api/referee/health`
+  * `POST /api/referee/verify` returns the `VerificationResponse` fields plus `latencyMs` and `model`.
+* **Local testing:** `cd server && npm install`, then `npm run test:referee` → http://localhost:4005 (workbench UI). Also `npm run test:referee:suite` (10-case regression), `npm run test:referee:svgs` (icon URL check), `npm run test:referee:fixtures` (download/generate test images — fixtures are gitignored).
+* **Secrets:** Put `GEMINI_API_KEY` in `server/.env` (see `.env.example`). All `.env` files are gitignored and have never been committed.
+* **Current Focus:** Role 4 module is feature-complete and tested standalone. Other roles keep frontend / Socket.io / WebRTC work separate until we mount `refereeRouter` on the real game server.
 
 Project Info:
 SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)

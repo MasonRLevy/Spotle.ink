@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotle Referee Workbench</title>
+    <style>
+      :root {
+        --bg: #07110c;
+        --panel: #0e1c15;
+        --panel-2: #13261c;
+        --line: #1f3d2e;
+        --text: #e8f6ee;
+        --muted: #8eae9a;
+        --accent: #7cffb2;
+        --accent-2: #c8f542;
+        --danger: #ff7b7b;
+        --warn: #ffd36b;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        background:
+          radial-gradient(1200px 500px at 10% -10%, #143325 0%, transparent 50%),
+          radial-gradient(900px 400px at 110% 0%, #1c3d18 0%, transparent 45%),
+          var(--bg);
+        color: var(--text);
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 20px 28px;
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 { margin: 0; font-size: 1.25rem; letter-spacing: 0.04em; }
+      header p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+      .pill {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--accent);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 20px;
+        padding: 20px;
+      }
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+      }
+      .card {
+        background: color-mix(in srgb, var(--panel) 88%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px;
+        backdrop-filter: blur(8px);
+      }
+      h2 { margin: 0 0 12px; font-size: 1rem; }
+      .toolbar, .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      button, select, input[type="text"] {
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 9px 12px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      button.primary {
+        background: var(--accent);
+        color: #06210f;
+        border-color: transparent;
+      }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+        gap: 10px;
+        max-height: 68vh;
+        overflow: auto;
+        padding-right: 4px;
+        margin-top: 12px;
+      }
+      .obj {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 10px 8px;
+        text-align: center;
+        cursor: pointer;
+      }
+      .obj.selected { outline: 2px solid var(--accent); }
+      .obj img {
+        width: 56px;
+        height: 56px;
+        display: block;
+        margin: 0 auto 6px;
+      }
+      .obj .name { font-size: 0.78rem; font-weight: 600; }
+      .obj .meta { font-size: 0.68rem; color: var(--muted); }
+      .obj.broken { outline: 2px solid var(--danger); }
+      video, img.preview, canvas {
+        width: 100%;
+        max-height: 260px;
+        background: #050a07;
+        border-radius: 12px;
+        border: 1px dashed var(--line);
+        object-fit: contain;
+      }
+      .drop {
+        margin-top: 8px;
+        padding: 12px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .drop.over { border-color: var(--accent); color: var(--accent); }
+      pre {
+        background: #050a07;
+        border-radius: 12px;
+        padding: 12px;
+        overflow: auto;
+        min-height: 180px;
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }
+      .ok { color: var(--accent); }
+      .bad { color: var(--danger); }
+      .stats { color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Spotle.online · Gemini Referee Workbench</h1>
+        <p>Isolated Role 4 test bench — object pool, Fluent Flat SVGs, vision verification</p>
+      </div>
+      <div class="pill" id="healthPill">Checking Gemini key…</div>
+    </header>
+    <main class="layout">
+      <section class="card">
+        <h2>Curated object pool</h2>
+        <div class="toolbar">
+          <select id="browseCategory">
+            <option value="ALL">ALL</option>
+            <option value="HACKATHON_CAMPUS">HACKATHON_CAMPUS</option>
+            <option value="HOUSEHOLD">HOUSEHOLD</option>
+          </select>
+          <span class="stats" id="poolStats">Loading…</span>
+        </div>
+        <div class="grid" id="objectGrid"></div>
+      </section>
+      <section class="card">
+        <h2>Referee sandbox</h2>
+        <div class="toolbar">
+          <select id="rollCategory">
+            <option value="ALL">ALL</option>
+            <option value="HACKATHON_CAMPUS">HACKATHON_CAMPUS</option>
+            <option value="HOUSEHOLD">HOUSEHOLD</option>
+          </select>
+          <button id="rollBtn" class="primary" type="button">Roll Random Target Object</button>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <input id="targetInput" type="text" placeholder="Target object (e.g. Hammer)" style="flex: 1; min-width: 160px" />
+          <input id="playerInput" type="text" placeholder="Player name" value="Mason" />
+        </div>
+        <div id="targetCard" class="stats" style="margin: 10px 0">No target selected yet.</div>
+        <video id="cam" autoplay playsinline muted></video>
+        <div class="toolbar" style="margin-top: 8px">
+          <button id="startCam" type="button">Start webcam</button>
+          <button id="snapBtn" type="button">Snap photo</button>
+          <button id="stopCam" type="button">Stop webcam</button>
+          <label>
+            <input id="fileInput" type="file" accept="image/*" hidden />
+            <button id="uploadBtn" type="button">Upload image</button>
+          </label>
+        </div>
+        <div class="drop" id="dropZone">Or drag and drop a test image here</div>
+        <img class="preview" id="preview" alt="Captured preview" hidden />
+        <div class="toolbar" style="margin-top: 12px">
+          <button id="verifyBtn" class="primary" type="button">Send to Gemini Referee</button>
+        </div>
+        <pre id="verdict">Waiting for a photo…</pre>
+      </section>
+    </main>
+    <script>
+      const grid = document.getElementById("objectGrid");
+      const poolStats = document.getElementById("poolStats");
+      const browseCategory = document.getElementById("browseCategory");
+      const rollCategory = document.getElementById("rollCategory");
+      const targetInput = document.getElementById("targetInput");
+      const playerInput = document.getElementById("playerInput");
+      const targetCard = document.getElementById("targetCard");
+      const cam = document.getElementById("cam");
+      const preview = document.getElementById("preview");
+      const verdict = document.getElementById("verdict");
+      const dropZone = document.getElementById("dropZone");
+      const healthPill = document.getElementById("healthPill");
+
+      let objects = [];
+      let imageBase64 = "";
+      let mediaStream = null;
+      let brokenIcons = 0;
+
+      async function loadObjects() {
+        const res = await fetch("/api/referee/objects");
+        const data = await res.json();
+        objects = data.objects || [];
+        renderGrid();
+      }
+
+      function renderGrid() {
+        const cat = browseCategory.value;
+        const list = objects.filter((o) => cat === "ALL" || o.category === cat);
+        brokenIcons = 0;
+        grid.innerHTML = "";
+        for (const obj of list) {
+          const el = document.createElement("button");
+          el.type = "button";
+          el.className = "obj";
+          el.innerHTML = `
+            <img src="${obj.flatSvgUrl}" alt="${obj.name}" />
+            <div class="name">${obj.name}</div>
+            <div class="meta">${obj.difficulty}</div>
+          `;
+          const img = el.querySelector("img");
+          img.addEventListener("error", () => {
+            el.classList.add("broken");
+            brokenIcons += 1;
+            poolStats.textContent = `${list.length} objects · ${brokenIcons} SVG error(s)`;
+          });
+          el.addEventListener("click", () => selectObject(obj));
+          grid.appendChild(el);
+        }
+        poolStats.textContent = `${list.length} objects shown · ${objects.length} total`;
+      }
+
+      function selectObject(obj) {
+        targetInput.value = obj.name;
+        targetCard.innerHTML = `<strong>${obj.emoji} ${obj.name}</strong> · ${obj.category} · ${obj.difficulty}<br/><span>${obj.examples}</span>`;
+        for (const node of grid.querySelectorAll(".obj")) {
+          node.classList.toggle("selected", node.querySelector(".name")?.textContent === obj.name);
+        }
+      }
+
+      async function rollRandom() {
+        const params = new URLSearchParams();
+        if (rollCategory.value !== "ALL") params.set("category", rollCategory.value);
+        const res = await fetch(`/api/referee/random-object?${params.toString()}`);
+        const obj = await res.json();
+        if (!res.ok) {
+          targetCard.textContent = obj.error || "No object returned";
+          return;
+        }
+        selectObject(obj);
+      }
+
+      async function startCam() {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        cam.srcObject = mediaStream;
+        preview.hidden = true;
+      }
+
+      function stopCam() {
+        mediaStream?.getTracks().forEach((t) => t.stop());
+        mediaStream = null;
+        cam.srcObject = null;
+      }
+
+      function snapPhoto() {
+        const canvas = document.createElement("canvas");
+        const w = cam.videoWidth || 1280;
+        const h = cam.videoHeight || 720;
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(cam, 0, 0, w, h);
+        imageBase64 = canvas.toDataURL("image/jpeg", 0.8);
+        preview.src = imageBase64;
+        preview.hidden = false;
+      }
+
+      function setImageFromFile(file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          imageBase64 = String(reader.result);
+          preview.src = imageBase64;
+          preview.hidden = false;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      async function verify() {
+        if (!targetInput.value.trim()) {
+          verdict.textContent = "Pick or type a target object first.";
+          return;
+        }
+        if (!imageBase64) {
+          verdict.textContent = "Snap or upload a photo first.";
+          return;
+        }
+        verdict.textContent = "Sending to Gemini…";
+        const res = await fetch("/api/referee/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetObject: targetInput.value.trim(),
+            imageBase64,
+            playerName: playerInput.value.trim() || "Mason",
+          }),
+        });
+        const data = await res.json();
+        const cls = data.verified ? "ok" : "bad";
+        verdict.className = cls;
+        verdict.textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function loadHealth() {
+        try {
+          const res = await fetch("/api/referee/health");
+          const data = await res.json();
+          healthPill.textContent = data.ok
+            ? `GEMINI_API_KEY loaded · ${data.model}`
+            : "GEMINI_API_KEY missing";
+          if (data.ok && data.modelChain?.length > 1) {
+            healthPill.title = `Fallback chain: ${data.modelChain.join(" -> ")}`;
+          }
+        } catch {
+          healthPill.textContent = "Workbench API unreachable";
+        }
+      }
+
+      browseCategory.addEventListener("change", renderGrid);
+      document.getElementById("rollBtn").addEventListener("click", rollRandom);
+      document.getElementById("startCam").addEventListener("click", () => startCam().catch((e) => {
+        verdict.textContent = e.message;
+      }));
+      document.getElementById("stopCam").addEventListener("click", stopCam);
+      document.getElementById("snapBtn").addEventListener("click", snapPhoto);
+      document.getElementById("uploadBtn").addEventListener("click", () => document.getElementById("fileInput").click());
+      document.getElementById("fileInput").addEventListener("change", (e) => {
+        const file = e.target.files?.[0];
+        if (file) setImageFromFile(file);
+      });
+      document.getElementById("verifyBtn").addEventListener("click", () => verify().catch((e) => {
+        verdict.textContent = e.message;
+      }));
+      ["dragenter", "dragover"].forEach((evt) => {
+        dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropZone.classList.add("over");
+        });
+      });
+      ["dragleave", "drop"].forEach((evt) => {
+        dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove("over");
+        });
+      });
+      dropZone.addEventListener("drop", (e) => {
+        const file = e.dataTransfer?.files?.[0];
+        if (file) setImageFromFile(file);
+      });
+
+      loadObjects();
+      loadHealth();
+    </script>
+  </body>
+</html>
