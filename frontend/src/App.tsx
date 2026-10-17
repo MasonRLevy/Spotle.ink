@@ -15,6 +15,7 @@ import inkRunning from './assets/Ink_running.gif';
 import inkSitting from './assets/Ink_sit.png';
 import inkHouse from './assets/Ink_house.png';
 import inkPaw from './assets/Ink_paw.png';
+import routeMarker from './assets/route.png';
 import xMarksTheSpot from './assets/X_marks_the_spot.png';
 import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
@@ -36,6 +37,7 @@ const maxPawPrints = 100;
 type LobbyPoint = { x: number; y: number };
 type PawPrint = LobbyPoint & { id: number; angle: number };
 type PastChest = LobbyPoint & { id: number };
+type RouteMarker = LobbyPoint & { id: number; angle: number; distanceAlong: number };
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
@@ -78,6 +80,7 @@ export default function App() {
   const [activeX, setActiveX] = useState<LobbyPoint | null>(null);
   const [pastChests, setPastChests] = useState<PastChest[]>([]);
   const [pawPrints, setPawPrints] = useState<PawPrint[]>([]);
+  const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
   const [isMoving, setIsMoving] = useState(false);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
@@ -85,6 +88,7 @@ export default function App() {
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
   const lobbyRef = useRef<HTMLDivElement | null>(null);
   const dogRef = useRef<HTMLDivElement | null>(null);
+  const runningSpriteRef = useRef<HTMLImageElement | null>(null);
   const mobileHouseRef = useRef<HTMLImageElement | null>(null);
   const desktopHouseRef = useRef<HTMLImageElement | null>(null);
   const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
@@ -99,6 +103,8 @@ export default function App() {
   const idleTimerRef = useRef<number | null>(null);
   const settleTimerRef = useRef<number | null>(null);
   const lastPrintPositionRef = useRef<LobbyPoint | null>(null);
+  const nextRouteMarkerRef = useRef(0);
+  const routeMarkerDistancesRef = useRef<number[]>([]);
   const dogPositionInitializedRef = useRef(false);
 
   const room = game.room;
@@ -427,10 +433,20 @@ useEffect(() => {
       y: midY + ny * offsetMag,
     };
     routeProgressRef.current = 0;
+    const routeSamples: Array<{ point: LobbyPoint; distance: number; angle: number }> = [
+      {
+        point: start,
+        distance: 0,
+        angle: Math.atan2(
+          2 * (routeControlRef.current.y - start.y),
+          2 * (routeControlRef.current.x - start.x),
+        ),
+      },
+    ];
     let sampledPathLength = 0;
     let previousPoint = start;
-    for (let sample = 1; sample <= 24; sample += 1) {
-      const t = sample / 24;
+    for (let sample = 1; sample <= 48; sample += 1) {
+      const t = sample / 48;
       const inverseT = 1 - t;
       const point = {
         x: inverseT * inverseT * start.x
@@ -441,9 +457,44 @@ useEffect(() => {
           + t * t * target.y,
       };
       sampledPathLength += Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+      routeSamples.push({
+        point,
+        distance: sampledPathLength,
+        angle: Math.atan2(
+          2 * inverseT * (routeControlRef.current.y - start.y)
+            + 2 * t * (target.y - routeControlRef.current.y),
+          2 * inverseT * (routeControlRef.current.x - start.x)
+            + 2 * t * (target.x - routeControlRef.current.x),
+        ),
+      });
       previousPoint = point;
     }
     routeLengthRef.current = sampledPathLength;
+    const markerGap = 28;
+    const markers: RouteMarker[] = [];
+    for (
+      let markerDistance = markerGap;
+      markerDistance < sampledPathLength;
+      markerDistance += markerGap
+    ) {
+      const sampleIndex = routeSamples.findIndex((sample) => sample.distance >= markerDistance);
+      const after = routeSamples[Math.max(sampleIndex, 0)];
+      const before = routeSamples[Math.max(sampleIndex - 1, 0)];
+      const segmentDistance = after.distance - before.distance;
+      const segmentProgress = segmentDistance > 0
+        ? (markerDistance - before.distance) / segmentDistance
+        : 0;
+      markers.push({
+        id: miniGameItemIdRef.current++,
+        x: before.point.x + (after.point.x - before.point.x) * segmentProgress,
+        y: before.point.y + (after.point.y - before.point.y) * segmentProgress,
+        angle: (before.angle + (after.angle - before.angle) * segmentProgress) * 180 / Math.PI,
+        distanceAlong: markerDistance,
+      });
+    }
+    routeMarkerDistancesRef.current = markers.map((marker) => marker.distanceAlong);
+    nextRouteMarkerRef.current = 0;
+    setRouteMarkers(markers);
     const initialTangent = Math.atan2(
       routeControlRef.current.y - start.y,
       routeControlRef.current.x - start.x,
@@ -477,6 +528,10 @@ useEffect(() => {
         dogScaleRef.current = destination.x < current.x ? -1 : 1;
         dog.style.transform =
           `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dogScaleRef.current})`;
+        if (runningSpriteRef.current) runningSpriteRef.current.style.transform = '';
+        routeMarkerDistancesRef.current = [];
+        nextRouteMarkerRef.current = 0;
+        setRouteMarkers([]);
         animationFrameRef.current = null;
         targetPositionRef.current = null;
         setActiveX(null);
@@ -523,6 +578,18 @@ useEffect(() => {
         oldProgress + speed / routeLengthRef.current,
       );
       const t = routeProgressRef.current;
+      const distanceTravelled = t * routeLengthRef.current;
+      const markersBeforeMovement = nextRouteMarkerRef.current;
+      while (
+        nextRouteMarkerRef.current < routeMarkerDistancesRef.current.length
+        && routeMarkerDistancesRef.current[nextRouteMarkerRef.current] <= distanceTravelled
+      ) {
+        nextRouteMarkerRef.current += 1;
+      }
+      if (nextRouteMarkerRef.current > markersBeforeMovement) {
+        const passedCount = nextRouteMarkerRef.current;
+        setRouteMarkers((markers) => markers.slice(passedCount));
+      }
       const inverseT = 1 - t;
       const control = routeControlRef.current;
       const startPoint = routeStartRef.current;
@@ -543,6 +610,13 @@ useEffect(() => {
       dogScaleRef.current = destination.x < current.x ? -1 : 1;
       dog.style.transform =
         `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
+      const gaitPhase = routeProgressRef.current * routeLengthRef.current * 0.18;
+      const sideJiggle = Math.sin(gaitPhase) * 2;
+      const verticalBounce = -Math.abs(Math.sin(gaitPhase)) * 4;
+      if (runningSpriteRef.current) {
+        runningSpriteRef.current.style.transform =
+          `translate(${sideJiggle}px, ${verticalBounce}px)`;
+      }
 
       const lastPrintPosition = lastPrintPositionRef.current;
       if (
@@ -609,6 +683,21 @@ useEffect(() => {
   function renderInkMiniGame() {
     return (
       <>
+        {routeMarkers.map((marker) => (
+          <img
+            key={marker.id}
+            src={routeMarker}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-0 h-7 w-7 select-none object-contain opacity-20 mix-blend-multiply"
+            style={{
+              left: marker.x,
+              top: marker.y,
+              transform: `translate(-50%, -50%) rotate(${marker.angle + 90}deg)`,
+            }}
+          />
+        ))}
+
         {pastChests.map((chest) => (
           <img
             key={chest.id}
@@ -668,14 +757,16 @@ useEffect(() => {
           }}
         >
           <img
+            ref={runningSpriteRef}
             src={inkRunning}
             alt=""
             className={`absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-200 ${isMoving ? 'opacity-100' : 'opacity-0'}`}
+            style={{ willChange: 'transform' }}
           />
           <img
             src={inkSitting}
             alt=""
-            className={`absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 select-none object-contain mix-blend-multiply transition-opacity duration-200 ${isMoving ? 'opacity-0' : 'opacity-100'}`}
+            className={`absolute left-1/2 top-1/2 h-[104px] w-[104px] -translate-x-1/2 -translate-y-1/2 select-none object-contain mix-blend-multiply transition-opacity duration-200 ${isMoving ? 'opacity-0' : 'opacity-100'}`}
           />
         </div>
       </>
@@ -706,7 +797,7 @@ useEffect(() => {
           alt=""
           aria-hidden="true"
           onLoad={initializeDogNearHouse}
-          className="absolute bottom-6 left-6 z-40 hidden h-auto w-64 select-none object-contain mix-blend-multiply md:block md:w-72"
+          className="absolute bottom-6 left-6 z-40 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
         />
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
@@ -717,7 +808,7 @@ useEffect(() => {
                 alt=""
                 aria-hidden="true"
                 onLoad={initializeDogNearHouse}
-                className="h-auto w-40 select-none object-contain mix-blend-multiply md:hidden"
+                className="h-auto w-60 select-none object-contain mix-blend-multiply md:hidden"
               />
               <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
               <label className="w-full text-center text-xl">
