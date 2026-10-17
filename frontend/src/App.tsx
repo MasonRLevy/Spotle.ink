@@ -84,7 +84,7 @@ export default function App() {
   const correctAudio = useRef(new Audio(correctAudioSrc));
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
   const lobbyRef = useRef<HTMLDivElement | null>(null);
-  const dogRef = useRef<HTMLImageElement | null>(null);
+  const dogRef = useRef<HTMLDivElement | null>(null);
   const mobileHouseRef = useRef<HTMLImageElement | null>(null);
   const desktopHouseRef = useRef<HTMLImageElement | null>(null);
   const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
@@ -408,18 +408,10 @@ useEffect(() => {
     const ny = directDistance === 0 ? 0 : dx / directDistance;
     const midX = (start.x + target.x) / 2;
     const midY = (start.y + target.y) / 2;
-    let offsetMag = 0;
-    if (directDistance >= 240) {
-      const rand = Math.random();
-      if (rand < 0.25) {
-        offsetMag = 0;
-      } else if (rand < 0.5) {
-        offsetMag = Math.random() * 400 + 300;
-      } else {
-        offsetMag = Math.random() * 150 + 50;
-      }
-      offsetMag *= Math.random() > 0.5 ? 1 : -1;
-    }
+    const offsetMag = directDistance < 240
+      ? 0
+      : (Math.random() < 0.25 ? 0 : 20 + Math.random() * 60)
+        * (Math.random() > 0.5 ? 1 : -1);
     routeControlRef.current = {
       x: midX + nx * offsetMag,
       y: midY + ny * offsetMag,
@@ -488,7 +480,7 @@ useEffect(() => {
             settleTimerRef.current = null;
             const currentLobby = lobbyRef.current;
             if (!currentLobby) return;
-            const sitOffset = 104;
+            const sitOffset = 84;
             const margin = 52;
             const candidates = [
               { x: arrival.x + sitOffset, y: arrival.y },
@@ -507,13 +499,7 @@ useEffect(() => {
                 ? point
                 : farthest,
             );
-            dogPositionRef.current = sitPosition;
-            dogScaleRef.current = sitPosition.x < arrival.x ? -1 : 1;
-            if (dogRef.current) {
-              dogRef.current.style.transform =
-                `translate(-50%, -50%) translate(${sitPosition.x}px, ${sitPosition.y}px) scaleX(${dogScaleRef.current})`;
-            }
-            setIsMoving(false);
+            startDogMovement(sitPosition, true);
           }, 1000);
         } else {
           setIsMoving(false);
@@ -593,7 +579,12 @@ useEffect(() => {
   function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
     const lobby = lobbyRef.current;
     if (!lobby) return;
-    if (event.target instanceof Element && event.target.closest('button')) return;
+    if (
+      event.target instanceof Element
+      && event.target.closest('button, input, textarea, select, label, form, a, [data-no-dog-move]')
+    ) {
+      return;
+    }
 
     const bounds = lobby.getBoundingClientRect();
     const target = {
@@ -658,16 +649,25 @@ useEffect(() => {
           />
         )}
 
-        <img
+        <div
           ref={dogRef}
-          src={isMoving ? inkRunning : inkSitting}
-          alt=""
           aria-hidden="true"
-          className={`pointer-events-none absolute left-0 top-0 z-10 select-none object-contain ${isMoving ? 'h-48 w-48' : 'h-24 w-24 mix-blend-multiply'}`}
+          className="pointer-events-none absolute left-0 top-0 z-10 h-48 w-48"
           style={{
             transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
-        />
+        >
+          <img
+            src={inkRunning}
+            alt=""
+            className={`absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-200 ${isMoving ? 'opacity-100' : 'opacity-0'}`}
+          />
+          <img
+            src={inkSitting}
+            alt=""
+            className={`absolute left-1/2 top-1/2 h-20 w-20 -translate-x-1/2 -translate-y-1/2 select-none object-contain mix-blend-multiply transition-opacity duration-200 ${isMoving ? 'opacity-0' : 'opacity-100'}`}
+          />
+        </div>
       </>
     );
   }
