@@ -1,20 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import confetti from 'canvas-confetti';
-import { Clock, Crown, FlipHorizontal } from 'lucide-react';
+import { Clock, Crown, SwitchCamera, X } from 'lucide-react';
 import spotleLogo from '../../Assets/Spotle_Logo.png';
+import coffeeMugImage from './assets/coffee-mug.png';
 
 type ViewState = 'LANDING' | 'LOBBY' | 'PLAYING' | 'SCOREBOARD';
 type GamePhase = 'idle' | 'flashing' | 'verifying' | 'won';
+type GamePlayer = { id: string; name: string; isLocal: boolean };
 
-const mockPlayers = [
-  { id: 'alex', name: 'Alex', isLocal: true },
-  { id: 'bot-1', name: 'Bot 1', isLocal: false },
-  { id: 'bot-2', name: 'Bot 2', isLocal: false },
-  { id: 'bot-3', name: 'Bot 3', isLocal: false },
-];
+const localPlayer: GamePlayer = { id: 'alex', name: 'Alex', isLocal: true };
+const maxPlayers = 4;
 
 const arcadeButtonClass =
-  'w-full border-4 border-spotle-navy bg-spotle-coral px-6 py-4 text-sm text-spotle-navy shadow-[0_6px_0_#1f2532] transition-transform active:scale-95';
+  'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
 
 const initialScores: Record<string, number> = {
   alex: 0,
@@ -25,31 +23,46 @@ const initialScores: Record<string, number> = {
 
 const currentTarget = {
   name: 'Coffee Mug',
-  imageUrl: 'https://placehold.co/320x320?text=Coffee%20Mug',
+  imageUrl: coffeeMugImage,
 };
+
+const taskbarHeightClass = 'h-28';
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+  const remainingSeconds = (seconds % 60).toFixed(1).padStart(4, '0');
+  return `${String(minutes).padStart(2, '0')}:${remainingSeconds}`;
+}
+
+function getGridClass(playerCount: number) {
+  if (playerCount === 1) return 'grid-cols-1 grid-rows-1';
+  if (playerCount === 2) return 'grid-cols-1 grid-rows-2';
+  return 'grid-cols-2 grid-rows-2';
 }
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>('LANDING');
   const [round, setRound] = useState(1);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [playerName, setPlayerName] = useState('Alex');
+  const [playerName, setPlayerName] = useState('');
+  const [joinPin, setJoinPin] = useState('');
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  const [players, setPlayers] = useState<GamePlayer[]>([localPlayer]);
   const [scores, setScores] = useState(initialScores);
   const [phase, setPhase] = useState<GamePhase>('idle');
-  const [reactionTime, setReactionTime] = useState<number | null>(null);
+  const [reactionTimes, setReactionTimes] = useState<Record<string, number>>({});
+  const [activeVerifyingTime, setActiveVerifyingTime] = useState<number | null>(null);
+  const [winnerId, setWinnerId] = useState<string | null>(null);
+  const [foundPlayerIds, setFoundPlayerIds] = useState<string[]>([]);
+  const [activeVerifyingId, setActiveVerifyingId] = useState<string | null>(null);
   const roundLocked = useRef(false);
 
   useEffect(() => {
     if (currentView !== 'PLAYING') return;
 
     const intervalId = window.setInterval(() => {
-      setElapsedSeconds((seconds) => seconds + 1);
-    }, 1000);
+      setElapsedSeconds((seconds) => Math.round((seconds + 0.1) * 10) / 10);
+    }, 100);
 
     return () => window.clearInterval(intervalId);
   }, [currentView]);
@@ -62,47 +75,143 @@ export default function App() {
 
     if (phase === 'verifying') {
       const timeoutId = window.setTimeout(() => {
+        if (!activeVerifyingId) return;
+
+        const nextFoundPlayerIds = foundPlayerIds.includes(activeVerifyingId)
+          ? foundPlayerIds
+          : [...foundPlayerIds, activeVerifyingId];
+        setFoundPlayerIds(nextFoundPlayerIds);
+        const nextReactionTimes = {
+          ...reactionTimes,
+          [activeVerifyingId]: activeVerifyingTime ?? 0,
+        };
+        setReactionTimes(nextReactionTimes);
+
+        if (Object.keys(reactionTimes).length === 0) {
+          setWinnerId(activeVerifyingId);
+        }
+
+        const pointsForPlace = [4, 3, 2, 1][foundPlayerIds.length] ?? 0;
         setScores((currentScores) => ({
           ...currentScores,
-          alex: (currentScores.alex ?? 0) + 1,
+          [activeVerifyingId]:
+            (currentScores[activeVerifyingId] ?? 0) + pointsForPlace,
         }));
-        setPhase('won');
-        confetti({
-          particleCount: 120,
-          spread: 75,
-          startVelocity: 50,
-          origin: { x: 0.5, y: 0 },
-        });
+
+        if (activeVerifyingId === localPlayer.id) {
+          for (const x of [0.12, 0.5, 0.88]) {
+            confetti({
+              particleCount: 140,
+              scalar: 3,
+              spread: 360,
+              startVelocity: 60,
+              gravity: 2.2,
+              decay: 0.9,
+              ticks: 220,
+              colors: ['#ffffff', '#ffe14a', '#e4785e', '#59c3ff', '#7aff8a'],
+              origin: { x, y: 0.55 },
+            });
+          }
+        }
+
+        setActiveVerifyingId(null);
+        setActiveVerifyingTime(null);
+        setPhase(nextFoundPlayerIds.length === players.length ? 'won' : 'idle');
       }, 1000);
 
       return () => window.clearTimeout(timeoutId);
     }
 
-    if (phase === 'won') {
+    if (phase === 'won' && players.every((player) => foundPlayerIds.includes(player.id))) {
       const timeoutId = window.setTimeout(() => {
         setCurrentView('SCOREBOARD');
       }, 2500);
 
       return () => window.clearTimeout(timeoutId);
     }
-  }, [phase]);
+  }, [
+    activeVerifyingId,
+    activeVerifyingTime,
+    foundPlayerIds,
+    phase,
+    players,
+    reactionTimes,
+  ]);
 
   function startNewGame() {
+    if (!playerName.trim() || players.length < 1 || players.length > maxPlayers) return;
+
     setRound(1);
     setElapsedSeconds(0);
     setScores(initialScores);
-    setReactionTime(null);
+    setReactionTimes({});
+    setActiveVerifyingTime(null);
+    setWinnerId(null);
     setPhase('idle');
+    setFoundPlayerIds([]);
+    setActiveVerifyingId(null);
     roundLocked.current = false;
     setCurrentView('PLAYING');
   }
 
-  function claimWin() {
-    if (roundLocked.current || currentView !== 'PLAYING') return;
+  function exitGame() {
+    setRound(1);
+    setElapsedSeconds(0);
+    setPlayers([localPlayer]);
+    setScores(initialScores);
+    setReactionTimes({});
+    setActiveVerifyingTime(null);
+    setWinnerId(null);
+    setPhase('idle');
+    setFoundPlayerIds([]);
+    setActiveVerifyingId(null);
+    setJoinPin('');
+    setIsJoinModalOpen(false);
+    roundLocked.current = false;
+    setCurrentView('LANDING');
+  }
 
-    roundLocked.current = true;
-    setReactionTime(elapsedSeconds);
+  function addOpponent() {
+    setPlayers((currentPlayers) => {
+      if (currentPlayers.length >= maxPlayers) return currentPlayers;
+
+      const botNumber = currentPlayers.length;
+      return [
+        ...currentPlayers,
+        { id: `bot-${botNumber}`, name: `Bot ${botNumber}`, isLocal: false },
+      ];
+    });
+  }
+
+  function submitJoinGame(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!playerName.trim() || !/^\d{6}$/.test(joinPin)) return;
+
+    setIsJoinModalOpen(false);
+    setCurrentView('LOBBY');
+  }
+
+  function handleFoundIt() {
+    if (currentView !== 'PLAYING' || phase !== 'idle') return;
+
+    const nextPlayer = players.find((player) => !foundPlayerIds.includes(player.id));
+    if (!nextPlayer) return;
+
+    if (nextPlayer.id === localPlayer.id && !roundLocked.current) {
+      roundLocked.current = true;
+    }
+
+    setActiveVerifyingId(nextPlayer.id);
+    setActiveVerifyingTime(elapsedSeconds);
     setPhase('flashing');
+  }
+
+  function handleSkip() {
+    if (currentView !== 'PLAYING' || phase !== 'idle' || elapsedSeconds < 30) return;
+
+    setPhase('idle');
+    setActiveVerifyingId(null);
+    setCurrentView('SCOREBOARD');
   }
 
   function startNextRound() {
@@ -114,8 +223,12 @@ export default function App() {
     }
 
     setElapsedSeconds(0);
-    setReactionTime(null);
+    setReactionTimes({});
+    setActiveVerifyingTime(null);
+    setWinnerId(null);
     setPhase('idle');
+    setFoundPlayerIds([]);
+    setActiveVerifyingId(null);
     roundLocked.current = false;
     setCurrentView('PLAYING');
   }
@@ -128,28 +241,33 @@ export default function App() {
           <img
             src={spotleLogo}
             alt="Spotle"
-            className="-translate-y-3 w-full max-w-xs"
+            className="-translate-y-3 w-full max-w-md"
           />
-          <label className="w-full text-left text-xs">
+          <label className="w-full text-center text-xl">
             Your Name
             <input
               type="text"
               value={playerName}
               onChange={(event) => setPlayerName(event.target.value)}
               placeholder="Enter your name"
-              className="mt-3 w-full border-4 border-spotle-navy bg-white px-4 py-4 text-sm text-spotle-navy placeholder:text-spotle-navy/50 focus:outline-4 focus:outline-spotle-coral"
+              className="mt-3 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-5 text-center text-xl text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
             />
           </label>
           <button
             type="button"
             onClick={() => setCurrentView('LOBBY')}
+            disabled={!playerName.trim()}
             className={arcadeButtonClass}
           >
             Create Game
           </button>
           <button
             type="button"
-            onClick={() => setCurrentView('LOBBY')}
+            onClick={() => {
+              setJoinPin('');
+              setIsJoinModalOpen(true);
+            }}
+            disabled={!playerName.trim()}
             className={arcadeButtonClass}
           >
             Join Game
@@ -159,16 +277,16 @@ export default function App() {
       break;
     case 'LOBBY':
       viewContent = (
-        <div className="flex w-full max-w-lg flex-col items-center gap-8">
-          <p className="text-lg">PIN: 847291</p>
-          <ul className="grid w-full grid-cols-2 gap-4">
+        <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
+          <p className="rounded-full border-4 border-spotle-cream bg-spotle-navy px-8 py-4 text-2xl text-spotle-coral">PIN: 847291</p>
+          <ul className="grid w-full shrink-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-3">
             {Array.from({ length: 4 }, (_, index) => {
-              const player = mockPlayers[index];
+              const player = players[index];
 
               return (
                 <li
                   key={player?.id ?? `empty-${index}`}
-                  className="flex aspect-square items-center justify-center border-4 border-spotle-navy p-3 text-center text-xs"
+                  className="flex aspect-square min-h-0 min-w-0 w-full items-center justify-center break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy p-3 text-center text-lg text-spotle-coral"
                 >
                   {player
                     ? player.isLocal
@@ -181,7 +299,16 @@ export default function App() {
           </ul>
           <button
             type="button"
+            onClick={addOpponent}
+            disabled={players.length >= maxPlayers}
+            className={arcadeButtonClass}
+          >
+            {players.length >= maxPlayers ? 'All Players Joined' : 'Add Player/Bot'}
+          </button>
+          <button
+            type="button"
             onClick={startNewGame}
+            disabled={!playerName.trim() || players.length > maxPlayers}
             className={arcadeButtonClass}
           >
             START GAME
@@ -200,15 +327,19 @@ export default function App() {
   if (currentView === 'PLAYING') {
     return (
       <PlayingScreen
-        playerList={mockPlayers}
+        playerList={players}
         playerName={playerName}
         round={round}
         elapsedSeconds={elapsedSeconds}
         targetName={currentTarget.name}
         targetImageUrl={currentTarget.imageUrl}
         phase={phase}
-        reactionTime={reactionTime}
-        onFoundIt={claimWin}
+        reactionTimes={reactionTimes}
+        winnerId={winnerId}
+        foundPlayerIds={foundPlayerIds}
+        activeVerifyingId={activeVerifyingId}
+        onFoundIt={handleFoundIt}
+        onSkip={handleSkip}
       />
     );
   }
@@ -216,22 +347,62 @@ export default function App() {
   if (currentView === 'SCOREBOARD') {
     return (
       <ScoreboardScreen
-        playerList={mockPlayers}
+        playerList={players}
         playerName={playerName}
         scores={scores}
         round={round}
         onNextRound={startNextRound}
+        onExit={exitGame}
       />
     );
   }
 
   return (
     <div className="min-h-screen bg-spotle-cream font-pixel text-spotle-navy">
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
-        <section className="flex flex-col items-center gap-6" aria-live="polite">
+      <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
+        <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
           {viewContent}
         </section>
       </main>
+      {isJoinModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-spotle-navy/70 p-6">
+          <form
+            onSubmit={submitJoinGame}
+            className="w-full max-w-md rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-8 text-center"
+            aria-labelledby="join-game-title"
+          >
+            <h2 id="join-game-title" className="text-2xl">Join Game</h2>
+            <label className="mt-6 block text-xl">
+              6-digit PIN
+              <input
+                type="text"
+                value={joinPin}
+                onChange={(event) => setJoinPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+                placeholder="______"
+                className="mt-3 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream px-6 py-5 text-center text-2xl tracking-[0.4em] text-spotle-navy"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!playerName.trim() || !/^\d{6}$/.test(joinPin)}
+              className={`${arcadeButtonClass} mt-6`}
+            >
+              Submit
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsJoinModalOpen(false)}
+              className={`${arcadeButtonClass} mt-4`}
+            >
+              Cancel
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -244,92 +415,176 @@ function PlayingScreen({
   targetName,
   targetImageUrl,
   phase,
-  reactionTime,
+  reactionTimes,
+  winnerId,
+  foundPlayerIds,
+  activeVerifyingId,
   onFoundIt,
+  onSkip,
 }: {
-  playerList: typeof mockPlayers;
+  playerList: GamePlayer[];
   playerName: string;
   round: number;
   elapsedSeconds: number;
   targetName: string;
   targetImageUrl: string;
   phase: GamePhase;
-  reactionTime: number | null;
+  reactionTimes: Record<string, number>;
+  winnerId: string | null;
+  foundPlayerIds: string[];
+  activeVerifyingId: string | null;
   onFoundIt: () => void;
+  onSkip: () => void;
 }) {
-  const winnerId = phase === 'won' ? 'alex' : null;
+  const hasTargetCell = playerList.length === 3;
 
   return (
-    <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-navy font-pixel text-spotle-cream">
-      <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
-        {playerList.map((player, index) => (
-          <section
-            key={player.id}
-            className={`relative min-h-0 min-w-0 border-4 bg-slate-800 ${
-              player.id === winnerId
-                ? 'z-10 border-emerald-400 shadow-[inset_0_0_24px_#4ade80,0_0_24px_#4ade80]'
-                : index % 2 === 0
-                  ? 'border-spotle-coral'
-                  : 'border-spotle-navy'
-            }`}
-            aria-label={`${player.isLocal ? playerName || 'Alex' : player.name}'s video feed`}
-          >
-            <p className="absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] truncate border-2 border-spotle-navy bg-spotle-cream px-2 py-2 text-[9px] text-spotle-navy sm:text-xs">
-              {player.isLocal ? playerName.trim() || 'Alex' : player.name}
-            </p>
-            {player.id === winnerId && (
-              <>
-                <Crown
-                  aria-label="Winner"
-                  className="absolute right-3 top-3 z-10 h-8 w-8 fill-yellow-300 text-yellow-300 drop-shadow-[0_0_8px_#fde047]"
+    <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
+      <div
+        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-7rem)] min-h-0 gap-0 p-0 ${getGridClass(playerList.length)}`}
+      >
+        {Array.from({ length: hasTargetCell ? maxPlayers : playerList.length }, (_, index) => {
+          const player = playerList[index];
+
+          if (hasTargetCell && index === maxPlayers - 1) {
+            return (
+              <div
+                key="target-cell"
+                className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-2 border-2 border-spotle-cream bg-spotle-cream p-3 text-center text-lg text-spotle-navy md:text-2xl lg:text-3xl"
+                aria-label={`Target item: ${targetName}`}
+              >
+                <img
+                  src={targetImageUrl}
+                  alt={targetName}
+                  className="max-h-[72%] w-3/4 flex-1 object-contain"
                 />
-                <p className="absolute inset-x-0 bottom-5 z-10 text-center text-[9px] text-yellow-200 sm:text-xs">
-                  {formatTime(reactionTime ?? 0)}
+                <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
+                  {targetName}
                 </p>
-              </>
-            )}
-          </section>
-        ))}
+              </div>
+            );
+          }
+
+          if (!player) return null;
+
+          const playerFound = foundPlayerIds.includes(player.id);
+
+          return (
+            <section
+              key={player.id}
+              className={`relative min-h-0 min-w-0 overflow-hidden border-2 border-spotle-cream bg-spotle-navy ${
+                player.id === winnerId
+                  ? 'z-10 border-8 border-green-400 shadow-[0_0_28px_#4ade80,inset_0_0_18px_#4ade80]'
+                  : ''
+              }`}
+              aria-label={`${player.isLocal ? playerName || 'Alex' : player.name}'s video feed`}
+            >
+              <p
+                className={`absolute z-10 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl lg:text-3xl ${
+                  playerList.length === 3 && index === 1
+                    ? 'right-2 top-2 text-right'
+                    : playerList.length === maxPlayers && (index === 1 || index === 3)
+                      ? 'right-2 top-2 text-right'
+                      : 'left-2 top-2 text-left'
+                }`}
+              >
+                {player.isLocal ? playerName.trim() || 'Alex' : player.name}
+              </p>
+              {player.id === winnerId && (
+                <>
+                  <Crown
+                    aria-label="Winner"
+                    className="absolute left-1/2 top-1/2 z-10 h-16 w-16 -translate-x-1/2 -translate-y-1/2 fill-yellow-300 text-yellow-300 drop-shadow-[0_0_16px_#fde047] md:h-24 md:w-24"
+                  />
+                </>
+              )}
+              {playerFound && reactionTimes[player.id] !== undefined && (
+                <p
+                  className={`absolute z-10 rounded-full border-2 border-spotle-cream bg-spotle-coral px-5 py-3 text-lg text-spotle-navy md:text-2xl lg:text-3xl ${
+                    playerList.length === 2
+                      ? 'left-2 top-20'
+                      : 'bottom-4 left-1/2 -translate-x-1/2'
+                  }`}
+                >
+                  {reactionTimes[player.id].toFixed(1)}s
+                </p>
+              )}
+              {activeVerifyingId === player.id
+                && (phase === 'flashing' || phase === 'verifying') && (
+                  <div
+                    className="absolute inset-0 z-20 flex items-center justify-center bg-spotle-navy/80"
+                    role="status"
+                    aria-live="assertive"
+                  >
+                    <p className="rounded-full border-4 border-spotle-cream bg-spotle-coral px-5 py-4 text-center text-xl text-spotle-navy md:text-2xl">
+                      VERIFYING...
+                    </p>
+                  </div>
+                )}
+            </section>
+          );
+        })}
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 top-5 z-10 text-center text-[10px] text-spotle-cream sm:text-xs">
-        ROUND {round} / 10
-      </div>
+      {(playerList.length === 2 || playerList.length === maxPlayers) && (
+        <div className="pointer-events-none absolute inset-x-0 top-[calc((100dvh-7rem)/2)] z-20 flex -translate-y-1/2 justify-center">
+          <TargetPanel targetName={targetName} targetImageUrl={targetImageUrl} />
+        </div>
+      )}
 
-      <figure className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 border-4 border-spotle-navy bg-spotle-cream p-2 text-center text-[9px] text-spotle-navy shadow-[6px_6px_0_#e4785e] sm:text-xs">
-        <img
-          src={targetImageUrl}
-          alt={targetName}
-          className="h-24 w-24 object-cover sm:h-32 sm:w-32"
-        />
-        <figcaption>TARGET: {targetName}</figcaption>
-      </figure>
+      <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
+        <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-5 py-3 text-center text-2xl text-spotle-navy md:px-8 md:text-4xl lg:text-5xl">
+          ROUND {round} / 10
+        </div>
+      </div>
 
       <nav
         aria-label="Game controls"
-        className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between border-t-4 border-spotle-navy bg-spotle-cream/95 px-4 py-3 text-spotle-navy backdrop-blur sm:px-8"
+        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 py-3 text-spotle-navy sm:gap-6 sm:px-8`}
       >
         <button
           type="button"
           aria-label="Flip camera"
-          className="flex h-14 w-14 items-center justify-center border-4 border-spotle-navy bg-spotle-coral shadow-[0_4px_0_#1f2532] transition-transform active:scale-95"
+          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-spotle-navy bg-spotle-cream text-spotle-navy transition-transform active:scale-95 sm:h-20 sm:w-20 md:h-24 md:w-24"
         >
-          <FlipHorizontal aria-hidden="true" className="h-7 w-7" />
+          <SwitchCamera aria-hidden="true" className="h-10 w-10 md:h-12 md:w-12" />
         </button>
 
-        <button
-          type="button"
-          onClick={onFoundIt}
-          aria-label="Found it"
-          disabled={phase !== 'idle'}
-          className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-spotle-navy bg-spotle-coral px-2 text-center text-[9px] leading-tight text-spotle-navy shadow-[0_6px_0_#1f2532] transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:w-24 sm:text-[10px]"
-        >
-          FOUND IT!
-        </button>
+        {elapsedSeconds >= 30 ? (
+          <div className="mx-auto flex w-full max-w-2xl items-center justify-center gap-2 sm:gap-5">
+            <button
+              type="button"
+              onClick={onFoundIt}
+              aria-label="Found it"
+              disabled={phase !== 'idle'}
+              className="h-20 min-w-0 flex-1 rounded-3xl border-4 border-spotle-navy bg-spotle-coral px-2 text-center text-lg text-spotle-navy transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:px-3 sm:text-3xl md:text-4xl"
+            >
+              FOUND IT!
+            </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              aria-label="Skip this player and show scoreboard"
+              className="h-20 shrink-0 rounded-3xl border-4 border-spotle-navy bg-spotle-navy px-3 text-center text-lg text-spotle-coral transition-transform active:scale-95 sm:h-24 sm:px-8 sm:text-3xl"
+            >
+              SKIP
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onFoundIt}
+            aria-label="Found it"
+            disabled={phase !== 'idle'}
+            className="h-20 w-full max-w-md justify-self-center rounded-3xl border-4 border-spotle-navy bg-spotle-coral px-2 text-center text-xl text-spotle-navy transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:px-4 sm:text-4xl md:max-w-xl md:text-4xl lg:max-w-2xl lg:text-5xl"
+          >
+            FOUND IT!
+          </button>
+        )}
 
-        <div className="flex min-w-14 items-center justify-end gap-2 text-[10px] sm:text-xs">
-          <Clock aria-hidden="true" className="h-6 w-6 shrink-0" />
-          <span aria-label={`Elapsed time ${formatTime(elapsedSeconds)}`}>
+        <div className="flex shrink-0 items-center justify-end gap-1 text-sm sm:gap-2 sm:text-xl md:text-2xl">
+          <Clock aria-hidden="true" className="h-7 w-7 shrink-0 sm:h-9 sm:w-9" />
+          <span aria-label={`Elapsed time ${formatTime(elapsedSeconds)}`} className="min-w-[4ch]">
             {formatTime(elapsedSeconds)}
           </span>
         </div>
@@ -339,18 +594,22 @@ function PlayingScreen({
         <div className="pointer-events-none fixed inset-0 z-40 animate-flash" />
       )}
 
-      {(phase === 'flashing' || phase === 'verifying') && (
-        <div
-          className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center"
-          role="status"
-          aria-live="assertive"
-        >
-          <p className="border-4 border-spotle-navy bg-spotle-cream px-6 py-5 text-sm text-spotle-navy shadow-[6px_6px_0_#1f2532]">
-            Verifying...
-          </p>
-        </div>
-      )}
     </main>
+  );
+}
+
+function TargetPanel({
+  targetName,
+  targetImageUrl,
+}: {
+  targetName: string;
+  targetImageUrl: string;
+}) {
+  return (
+    <figure className="flex w-32 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-sm text-spotle-coral md:w-36 md:text-base lg:w-40 lg:text-lg">
+      <img src={targetImageUrl} alt={targetName} className="aspect-square w-full object-cover" />
+      <figcaption className="w-full px-3 py-3">{targetName}</figcaption>
+    </figure>
   );
 }
 
@@ -360,12 +619,14 @@ function ScoreboardScreen({
   scores,
   round,
   onNextRound,
+  onExit,
 }: {
-  playerList: typeof mockPlayers;
+  playerList: GamePlayer[];
   playerName: string;
   scores: Record<string, number>;
   round: number;
   onNextRound: () => void;
+  onExit: () => void;
 }) {
   const rankedPlayers = [...playerList]
     .map((player) => ({
@@ -376,32 +637,38 @@ function ScoreboardScreen({
     .sort((a, b) => b.score - a.score);
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-spotle-navy p-6 font-pixel text-spotle-navy">
-      <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 blur-md">
-        {playerList.map((player, index) => (
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-spotle-cream p-6 font-pixel text-spotle-coral">
+      <button
+        type="button"
+        onClick={onExit}
+        aria-label="Exit to landing page"
+        className="absolute right-4 top-4 z-20 flex h-14 w-14 items-center justify-center rounded-full border-4 border-spotle-navy bg-spotle-coral text-spotle-navy transition-transform active:scale-95 md:h-16 md:w-16"
+      >
+        <X aria-hidden="true" className="h-8 w-8 md:h-10 md:w-10" />
+      </button>
+      <div className={`absolute inset-0 grid blur-md ${getGridClass(playerList.length)}`}>
+        {playerList.map((player) => (
           <div
             key={player.id}
-            className={`relative border-4 bg-slate-800 ${
-              index % 2 === 0 ? 'border-spotle-coral' : 'border-spotle-navy'
-            }`}
+            className="relative min-h-0 min-w-0 border-4 border-spotle-cream bg-spotle-navy"
             aria-hidden="true"
           >
-            <span className="absolute left-3 top-3 text-xs text-spotle-cream">
+            <span className="absolute left-4 top-4 text-xl text-spotle-coral">
               {player.isLocal ? playerName.trim() || 'Alex' : player.name}
             </span>
           </div>
         ))}
       </div>
-      <div className="absolute inset-0 bg-spotle-navy/45" />
+      <div className="absolute inset-0 bg-spotle-cream/45" />
 
-      <section className="relative z-10 w-full max-w-lg rounded-2xl border-4 border-spotle-navy bg-spotle-cream p-6 shadow-[8px_8px_0_#e4785e] sm:p-8">
-        <h1 className="text-center text-lg">Scoreboard</h1>
-        <p className="mt-5 text-center text-xs">Round {round} of 10</p>
+      <section className="relative z-10 w-full max-w-lg rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy p-6 text-spotle-coral sm:p-8">
+        <h1 className="text-center text-2xl">Scoreboard</h1>
+        <p className="mt-5 text-center text-xl">Round {round} of 10</p>
         <ol className="mt-8 space-y-3">
           {rankedPlayers.map((player, index) => (
             <li
               key={player.id}
-              className="flex items-center justify-between gap-4 border-2 border-spotle-navy bg-white px-4 py-3 text-[10px] sm:text-xs"
+              className="flex items-center justify-between gap-4 rounded-full border-2 border-spotle-cream bg-spotle-coral px-5 py-4 text-base text-spotle-navy"
             >
               <span>
                 {index + 1}. {player.displayName}
