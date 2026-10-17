@@ -146,6 +146,8 @@ export default function App() {
   const isHost = Boolean(me?.isHost);
   const round = game.round;
   const inRoom = Boolean(room);
+  const showHomeMiniGame =
+    !isJoinModalOpen && !isSettingsOpen && !isHornsDownOpen;
   const allPlayersSettled =
     players.length > 0
     && players.every((player) => player.status === 'FOUND' || player.status === 'SKIPPED');
@@ -313,7 +315,7 @@ useEffect(() => {
   }, [isTalking, refereeMessage]);
 
   useEffect(() => {
-    if (inRoom) {
+    if (inRoom || !showHomeMiniGame) {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -322,7 +324,7 @@ useEffect(() => {
         window.clearTimeout(idleTimerRef.current);
         idleTimerRef.current = null;
       }
-      if (barkTimerRef.current !== null) {
+      if (inRoom && barkTimerRef.current !== null) {
         window.clearTimeout(barkTimerRef.current);
         barkTimerRef.current = null;
       }
@@ -340,7 +342,7 @@ useEffect(() => {
     initializeDogNearHouse();
     scheduleIdleReturn();
 
-  }, [inRoom]);
+  }, [inRoom, showHomeMiniGame]);
 
   useEffect(
     () => () => {
@@ -918,27 +920,33 @@ useEffect(() => {
             className="absolute inset-0 bg-repeat opacity-[0.15]"
             style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
           />
-          <img
-            ref={desktopHouseRef}
-            src={inkHouse}
-            alt=""
-            aria-hidden="true"
-            onLoad={initializeDogNearHouse}
-            className="absolute bottom-6 left-6 z-10 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
-          />
-          <img
-            ref={mobileHouseRef}
-            src={inkHouse}
-            alt=""
-            aria-hidden="true"
-            onLoad={initializeDogNearHouse}
-            className="absolute left-1/2 top-3 z-10 h-auto w-72 -translate-x-1/2 select-none object-contain mix-blend-multiply md:hidden"
-          />
-          {renderInkMiniGame(false)}
+          {showHomeMiniGame && (
+            <>
+              <img
+                ref={desktopHouseRef}
+                src={inkHouse}
+                alt=""
+                aria-hidden="true"
+                onLoad={initializeDogNearHouse}
+                className="absolute bottom-6 left-6 z-10 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
+              />
+              <img
+                ref={mobileHouseRef}
+                src={inkHouse}
+                alt=""
+                aria-hidden="true"
+                onLoad={initializeDogNearHouse}
+                className="absolute left-1/2 top-3 z-10 h-auto w-72 -translate-x-1/2 select-none object-contain mix-blend-multiply md:hidden"
+              />
+              {renderInkMiniGame(false)}
+            </>
+          )}
         </div>
-        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60]">
-          {renderInkDog()}
-        </div>
+        {showHomeMiniGame && (
+          <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60]">
+            {renderInkDog()}
+          </div>
+        )}
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 pt-36 text-center sm:gap-8 sm:p-6 sm:pt-6">
           <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
