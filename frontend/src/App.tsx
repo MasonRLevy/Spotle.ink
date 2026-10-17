@@ -51,6 +51,7 @@ function getGridClass(playerCount: number) {
 export default function App() {
   const game = useGameSocket();
   const [playerName, setPlayerName] = useState('');
+  const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
   const [joinPin, setJoinPin] = useState('');
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -101,7 +102,25 @@ export default function App() {
     );
   }, [players]);
 
+useEffect(() => {
+    if (room?.status !== 'COUNTDOWN') {
+      setCountdownNumber(null);
+      return;
+    }
 
+    setCountdownNumber(3);
+    const interval = window.setInterval(() => {
+      setCountdownNumber((prev) => {
+        if (prev === null || prev <= 1) {
+          window.clearInterval(interval);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [room?.status]);
   useEffect(() => {
     const verdict = game.lastVerdict;
     if (!verdict) return;
