@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS: RoomState['settings'] = {
   mode: 'OBJECTS',
   // No theme until the host picks one, so the lobby button reads "Themes".
   theme: null,
+  hidingDurationSec: 45,
 };
 
 /** 6-digit numeric PIN, matching the join modal in the UI. */
@@ -117,13 +118,18 @@ export function setStatus(room: RoomState, status: RoomStatus): void {
 }
 
 export function setMode(room: RoomState, mode: GameMode): void {
-  room.settings.mode = mode;
+  room.settings.mode = mode === 'HIDE_N_SEEK' ? 'HIDE_AND_SEEK' : mode;
   if (isPlayerHuntMode(mode)) room.settings.theme = null;
 }
 
 export function setTheme(room: RoomState, theme: ThemeType | null): void {
   room.settings.theme = theme;
   if (theme !== null) room.settings.mode = 'OBJECTS';
+}
+
+export function setHidingDuration(room: RoomState, durationSec: number): void {
+  const requested = Number.isFinite(durationSec) ? Math.round(durationSec) : 45;
+  room.settings.hidingDurationSec = Math.max(30, Math.min(60, requested));
 }
 
 export function playerList(room: RoomState): Player[] {
@@ -147,6 +153,8 @@ export function resetForNewGame(room: RoomState): void {
   room.status = 'LOBBY';
   room.currentRound = null;
   room.usedObjects = [];
+  delete room.hidingEndsAt;
+  delete room.hideAndSeekWinner;
   for (const player of Object.values(room.players)) {
     player.score = 0;
     player.status = 'READY';
@@ -156,5 +164,7 @@ export function resetForNewGame(room: RoomState): void {
     delete player.selfieBase64;
     delete player.selfieReady;
     delete player.targetPlayerId;
+    delete player.role;
+    delete player.isCaught;
   }
 }

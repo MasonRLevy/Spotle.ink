@@ -80,6 +80,7 @@ export function useWebRTC(options: {
   const [isFlipping, setIsFlipping] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
   const [micAvailable, setMicAvailable] = useState(false);
+  const videoEnabledRef = useRef(true);
 
   const localVideoEl = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<Peer | null>(null);
@@ -270,6 +271,9 @@ export function useWebRTC(options: {
         }
 
         const audioTracks = stream.getAudioTracks();
+        stream.getVideoTracks().forEach((track) => {
+          track.enabled = videoEnabledRef.current;
+        });
         setMicAvailable(audioTracks.length > 0);
         setMicEnabled(audioTracks.length > 0 ? audioTracks[0]!.enabled : false);
         if (cancelled) {
@@ -398,6 +402,7 @@ export function useWebRTC(options: {
       if (!newTrack) {
         throw new Error('No video track on the flipped camera.');
       }
+      newTrack.enabled = videoEnabledRef.current;
 
       if (oldTrack) current.removeTrack(oldTrack);
       current.addTrack(newTrack);
@@ -419,6 +424,7 @@ export function useWebRTC(options: {
         });
         const restoreTrack = fallback.getVideoTracks()[0];
         if (restoreTrack) {
+          restoreTrack.enabled = videoEnabledRef.current;
           current.addTrack(restoreTrack);
           await replaceVideoTrackOnCalls(restoreTrack);
           streamRef.current = current;
@@ -440,6 +446,13 @@ export function useWebRTC(options: {
    */
   const toggleMic = useCallback(() => {
     setMicEnabled((on) => !on);
+  }, []);
+
+  const setVideoEnabled = useCallback((enabled: boolean) => {
+    videoEnabledRef.current = enabled;
+    streamRef.current?.getVideoTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
   }, []);
 
   /**
@@ -553,6 +566,7 @@ export function useWebRTC(options: {
     micActive,
     micAvailable,
     toggleMic,
+    setVideoEnabled,
     flipCamera,
     captureJpeg,
   };

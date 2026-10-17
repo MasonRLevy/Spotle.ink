@@ -10,13 +10,21 @@ export type RoomStatus =
   | 'LOBBY'
   | 'COUNTDOWN'
   | 'SELFIE_REGISTRATION'
+  | 'HIDING_PHASE'
   | 'HUNTING'
   | 'ROUND_RESULT'
   | 'GAME_OVER';
 
-export type GameMode = 'OBJECTS' | 'ME' | 'HIDE_N_SEEK';
+export type GameMode = 'OBJECTS' | 'ME' | 'HIDE_AND_SEEK' | 'HIDE_N_SEEK';
+export type PlayerRole = 'SEEKER' | 'HIDER';
+export type HideAndSeekWinner = 'SEEKER' | 'HIDERS';
+
+export function isHideAndSeekMode(mode: GameMode): boolean {
+  return mode === 'HIDE_AND_SEEK' || mode === 'HIDE_N_SEEK';
+}
+
 export function isPlayerHuntMode(mode: GameMode): boolean {
-  return mode === 'ME' || mode === 'HIDE_N_SEEK';
+  return mode === 'ME' || isHideAndSeekMode(mode);
 }
 export type ThemeType = 'UF_SWAMP' | 'HACKATHON' | 'GENERAL' | 'OUTDOORS';
 
@@ -80,6 +88,8 @@ export interface Player {
   selfieBase64?: string;
   selfieReady?: boolean;
   targetPlayerId?: string;
+  role?: PlayerRole;
+  isCaught?: boolean;
   /** Set once this player has been verified in the current round. */
   placement?: number;
   reactionMs?: number;
@@ -102,11 +112,18 @@ export interface RoundData {
   emoji?: string;
   targetPlayerId?: string;
   targetPlayerSelfie?: string;
+  tagTargets?: HideAndSeekTarget[];
   startTime: number;
   finishers: string[];
   winnerId?: string;
   refereeCommentary?: string;
   imageAttribution?: ImageAttribution;
+}
+
+export interface HideAndSeekTarget {
+  id: string;
+  name: string;
+  selfieBase64: string;
 }
 
 export interface RoundStartPayload {
@@ -117,6 +134,7 @@ export interface RoundStartPayload {
   emoji?: string;
   targetPlayerId?: string;
   targetPlayerSelfie?: string;
+  tagTargets?: HideAndSeekTarget[];
   startTime: number;
 }
 
@@ -126,6 +144,7 @@ export interface RoomSettings {
   roundTimeLimitSec: number;
   mode: GameMode;
   theme: ThemeType | null;
+  hidingDurationSec: number;
 }
 
 export interface RoomState {
@@ -137,6 +156,8 @@ export interface RoomState {
   players: Record<string, Player>;
   currentRound: RoundData | null;
   usedObjects: string[];
+  hidingEndsAt?: number;
+  hideAndSeekWinner?: HideAndSeekWinner;
 }
 
 export interface VerificationResponse {
@@ -182,6 +203,17 @@ export interface AttemptPayload {
   imageDataUrl: string;
 }
 
+export interface TagAttemptPayload {
+  targetPlayerId: string;
+  capturedFrameBase64: string;
+}
+
+export interface StartHidingPhasePayload {
+  durationSec: number;
+  seekerId: string;
+  seekerName: string;
+}
+
 export interface VerdictEvent {
   playerId: string;
   playerName: string;
@@ -205,11 +237,13 @@ export interface ClientToServerEvents {
   'peer:register': (payload: { peerId: string }) => void;
   'room:set-mode': (payload: { mode: GameMode }) => void;
   'room:set-theme': (payload: { theme: ThemeType | null }) => void;
+  'room:set-hiding-duration': (payload: { durationSec: number }) => void;
   'game:start': () => void;
   'round:attempt': (payload: AttemptPayload) => void;
   'round:give-up': () => void;
   'round:skip': () => void;
   'SUBMIT_SELFIE': (payload: { selfieBase64: string }) => void;
+  'SUBMIT_TAG_ATTEMPT': (payload: TagAttemptPayload) => void;
   'game:reset': () => void;
 }
 
@@ -218,6 +252,9 @@ export interface ServerToClientEvents {
   'room:update': (room: RoomState) => void;
   'round:start': (round: RoundData) => void;
   'PROMPT_SELFIE_REGISTRATION': (payload: { timeoutMs: number }) => void;
+  'START_HIDING_PHASE': (payload: StartHidingPhasePayload) => void;
+  'HIDING_PHASE_END': (payload: Record<string, never>) => void;
+  'PLAYER_CAUGHT': (payload: { hiderId: string; hiderName: string; remainingHiders: number }) => void;
   'round:verdict': (event: VerdictEvent) => void;
   'round:end': (event: RoundEndEvent) => void;
   'game:over': (room: RoomState) => void;

@@ -364,7 +364,7 @@ export async function verifyPlayerHunt({
         contents: [{
           role: 'user',
           parts: [
-            { text: `Compare these two photos. Image 1 is the registered selfie of ${targetName}; image 2 is ${hunterName}'s live camera capture. Verify only if the same person is clearly visible in image 2. Reject a photo of a screen or a different person. Return a concise referee comment.` },
+            { text: `Compare these two photos. Image 1 is the registered selfie of ${targetName}; image 2 is ${hunterName}'s live camera capture. Verify only if the same person is clearly visible in image 2. Reject a photo of a screen or a different person. In particular, reject a phone or laptop showing a WebRTC video tile; look for bezels, moire, browser UI, reflections, or screen glare. Keep the referee comment to one short sentence.` },
             { text: 'Image 1: registered target selfie.' },
             { inlineData: { mimeType: targetImage.mimeType, data: targetImage.data } },
             { text: 'Image 2: captured hunt frame.' },
@@ -372,7 +372,7 @@ export async function verifyPlayerHunt({
           ],
         }],
         config: {
-          systemInstruction: 'You are Spotle.online\'s identity referee. Compare the person in the registered selfie with the person in the hunt frame. Do not infer identity from clothing or surroundings alone. Detect screen-photo cheating. Return strict JSON matching the verification schema.',
+          systemInstruction: 'You are Spotle.online\'s Hide & Seek referee. Compare facial features and distinguishing characteristics; clothing and surroundings alone are not identity evidence. Reject any photograph of an in-app WebRTC tile on a phone, laptop, or monitor, including visible bezels, moire, browser UI, reflections, or screen glare. Return strict JSON matching the verification schema.',
           responseMimeType: 'application/json',
           responseSchema: VERIFICATION_SCHEMA,
           temperature: 0.2,
@@ -391,6 +391,20 @@ export async function verifyPlayerHunt({
 
   const detail = lastError instanceof Error ? lastError.message : String(lastError ?? 'time budget exhausted');
   throw new Error(`Player verification failed across the model chain. Last error: ${detail}`);
+}
+
+export function verifyHideAndSeekTag(
+  hiderSelfieBase64: string,
+  capturedFrameBase64: string,
+  hiderName: string,
+  seekerName: string,
+): Promise<VerificationResponse> {
+  return verifyPlayerHunt({
+    targetSelfieBase64: hiderSelfieBase64,
+    capturedFrameBase64,
+    targetName: hiderName,
+    hunterName: seekerName,
+  });
 }
 
 export async function checkGeminiApiKey(): Promise<{

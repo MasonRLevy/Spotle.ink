@@ -28,6 +28,7 @@ import {
   joinRoom,
   removePlayer,
   serializeRoom,
+  setHidingDuration,
   setMode,
   setPeerId,
   setTheme,
@@ -37,6 +38,7 @@ import {
   clearTimers,
   giveUpPlayer,
   handleAttempt,
+  handleTagAttempt,
   maybeStartMeRound,
   nextRound,
   startGame,
@@ -186,6 +188,13 @@ io.on('connection', (socket) => {
     broadcastRoom(io, room);
   });
 
+  socket.on('room:set-hiding-duration', ({ durationSec }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    if (!room || room.hostId !== socket.id || room.status !== 'LOBBY') return;
+    setHidingDuration(room, durationSec);
+    broadcastRoom(io, room);
+  });
+
   socket.on('SUBMIT_SELFIE', ({ selfieBase64 }) => {
     const room = pin ? getRoom(pin) : undefined;
     const player = room?.players[socket.id];
@@ -198,6 +207,12 @@ io.on('connection', (socket) => {
     player.selfieReady = true;
     broadcastRoom(io, room);
     maybeStartMeRound(io, room);
+  });
+
+  socket.on('SUBMIT_TAG_ATTEMPT', ({ targetPlayerId, capturedFrameBase64 }) => {
+    const room = pin ? getRoom(pin) : undefined;
+    if (!room || !targetPlayerId || !capturedFrameBase64 || capturedFrameBase64.length > 4_000_000) return;
+    void handleTagAttempt(io, room, socket.id, targetPlayerId, capturedFrameBase64);
   });
 
   socket.on('game:start', () => {

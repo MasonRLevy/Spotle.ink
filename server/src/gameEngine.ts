@@ -4,15 +4,15 @@
 import type { Server } from 'socket.io';
 import type {
   ClientToServerEvents,
+  HideAndSeekWinner,
   Player,
   RoomState,
   RoundData,
   ServerToClientEvents,
   VerificationResponse,
 } from '../../shared/game.js';
-import { pointsForPlacement } from '../../shared/game.js';
-import { isPlayerHuntMode } from '../../shared/game.js';
-import { verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
+import { isHideAndSeekMode, isPlayerHuntMode, pointsForPlacement } from '../../shared/game.js';
+import { verifyHideAndSeekTag, verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
 import { MASTER_ITEM_DATABASE, pickRoundTarget } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
 
@@ -81,10 +81,72 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
   };
 }
 
+function beginHideAndSeekHunt(io: GameServer, room: RoomState): void {
+  if (room.status !== 'HIDING_PHASE') return;
+
+  delete room.hidingEndsAt;
+  room.status = 'HUNTING';
+  const round: RoundData = {
+    roundNumber: 1,
+    mode: 'HIDE_AND_SEEK',
+    targetObject: 'Find the hiders!',
+    difficulty: 'MEDIUM',
+    startTime: Date.now(),
+    finishers: [],
+  };
+  room.currentRound = round;
+  for (const player of Object.values(room.players)) {
+    player.status = player.isCaught ? 'FOUND' : 'SEARCHING';
+  }
+
+  broadcastRoom(io, room);
+  io.to(room.roomCode).emit('HIDING_PHASE_END', {});
+  const hiderTargets = Object.values(room.players)
+    .filter((player) => player.role === 'HIDER' && player.selfieBase64)
+    .map((player) => ({
+      id: player.id,
+      name: player.name,
+      selfieBase64: player.selfieBase64!,
+    }));
+  for (const player of Object.values(room.players)) {
+    io.to(player.id).emit('round:start', player.role === 'SEEKER'
+      ? { ...round, tagTargets: hiderTargets }
+      : round);
+  }
+  schedule(room.roomCode, () => finishHideAndSeek(io, room, 'HIDERS'), room.settings.roundTimeLimitSec * 1000);
+}
+
+function startHideAndSeek(io: GameServer, room: RoomState): void {
+  const players = Object.values(room.players);
+  const seeker = players[Math.floor(Math.random() * players.length)];
+  if (!seeker || players.length < 2) return;
+
+  for (const player of players) {
+    player.role = player.id === seeker.id ? 'SEEKER' : 'HIDER';
+    player.isCaught = false;
+    player.status = 'READY';
+  }
+
+  room.status = 'HIDING_PHASE';
+  room.hidingEndsAt = Date.now() + room.settings.hidingDurationSec * 1000;
+  broadcastRoom(io, room);
+  io.to(room.roomCode).emit('START_HIDING_PHASE', {
+    durationSec: room.settings.hidingDurationSec,
+    seekerId: seeker.id,
+    seekerName: seeker.name,
+  });
+  schedule(room.roomCode, () => beginHideAndSeekHunt(io, room), room.settings.hidingDurationSec * 1000);
+}
+
 export function maybeStartMeRound(io: GameServer, room: RoomState): boolean {
   if (!isPlayerHuntMode(room.settings.mode) || room.status !== 'SELFIE_REGISTRATION') return false;
   const players = Object.values(room.players);
-  if (players.length === 0 || players.some((player) => !player.selfieBase64)) return false;
+  if (players.length < 2 || players.some((player) => !player.selfieBase64)) return false;
+
+  if (isHideAndSeekMode(room.settings.mode)) {
+    startHideAndSeek(io, room);
+    return true;
+  }
 
   room.status = 'COUNTDOWN';
   broadcastRoom(io, room);
@@ -98,7 +160,7 @@ export function startGame(io: GameServer, room: RoomState): void {
 
   if (isPlayerHuntMode(room.settings.mode)) {
     if (Object.keys(room.players).length < 2) {
-      io.to(room.roomCode).emit('game:error', { message: 'Player Hunt needs at least two players.' });
+      io.to(room.roomCode).emit('game:error', { message: 'This mode needs at least two players.' });
       return;
     }
     room.status = 'SELFIE_REGISTRATION';
@@ -219,6 +281,7 @@ export async function handleAttempt(
   const player = room.players[playerId];
   const round = room.currentRound;
 
+  if (isHideAndSeekMode(room.settings.mode)) return;
   if (!player || !round || room.status !== 'HUNTING') return;
   if (player.status === 'FOUND' || player.status === 'VERIFYING') return;
   if (round.finishers.includes(playerId)) return;
@@ -327,6 +390,116 @@ export async function handleAttempt(
   if (everyoneFinished) {
     schedule(room.roomCode, () => endRound(io, room), 1200);
   }
+}
+
+function finishHideAndSeek(io: GameServer, room: RoomState, winner: HideAndSeekWinner): void {
+  if (room.status !== 'HUNTING' || !isHideAndSeekMode(room.settings.mode)) return;
+  clearTimers(room.roomCode);
+  room.hideAndSeekWinner = winner;
+  room.status = 'GAME_OVER';
+  for (const player of Object.values(room.players)) {
+    if (player.role === 'SEEKER') {
+      player.status = winner === 'SEEKER' ? 'FOUND' : 'SKIPPED';
+    } else {
+      player.status = player.isCaught ? 'FOUND' : 'SKIPPED';
+    }
+  }
+  broadcastRoom(io, room);
+  io.to(room.roomCode).emit('game:over', serializeRoom(room));
+}
+
+export async function handleTagAttempt(
+  io: GameServer,
+  room: RoomState,
+  seekerId: string,
+  targetPlayerId: string,
+  capturedFrameBase64: string,
+): Promise<void> {
+  const seeker = room.players[seekerId];
+  const hider = room.players[targetPlayerId];
+  const round = room.currentRound;
+  if (
+    room.status !== 'HUNTING'
+    || !isHideAndSeekMode(room.settings.mode)
+    || !round
+    || seeker?.role !== 'SEEKER'
+    || seeker.status !== 'SEARCHING'
+    || hider?.role !== 'HIDER'
+    || hider.isCaught
+    || !hider.selfieBase64
+    || !capturedFrameBase64
+  ) return;
+
+  seeker.status = 'VERIFYING';
+  broadcastRoom(io, room);
+
+  let verdict: VerificationResponse;
+  try {
+    verdict = await verifyHideAndSeekTag(
+      hider.selfieBase64,
+      capturedFrameBase64,
+      hider.name,
+      seeker.name,
+    );
+  } catch (error) {
+    console.error('[gameEngine] hide-and-seek verification error:', error);
+    if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) return;
+    seeker.status = 'SEARCHING';
+    broadcastRoom(io, room);
+    io.to(room.roomCode).emit('round:verdict', {
+      playerId: seekerId,
+      playerName: seeker.name,
+      verdict: {
+        verified: false,
+        detectedObject: 'unknown',
+        matchQuality: 'NOT_FOUND',
+        confidence: 0,
+        isScreenCheat: false,
+        commentary: 'The referee could not review that tag. Try again.',
+      },
+      cooldownMs: 1000,
+    });
+    return;
+  }
+
+  if (room.status !== 'HUNTING' || room.currentRound?.roundNumber !== round.roundNumber) return;
+
+  if (verdict.verified) {
+    hider.isCaught = true;
+    hider.status = 'FOUND';
+    round.finishers.push(hider.id);
+    seeker.status = 'SEARCHING';
+    const remainingHiders = Object.values(room.players)
+      .filter((player) => player.role === 'HIDER' && !player.isCaught).length;
+    broadcastRoom(io, room);
+    io.to(room.roomCode).emit('PLAYER_CAUGHT', {
+      hiderId: hider.id,
+      hiderName: hider.name,
+      remainingHiders,
+    });
+    io.to(room.roomCode).emit('round:verdict', {
+      playerId: seekerId,
+      playerName: seeker.name,
+      verdict,
+    });
+    if (remainingHiders === 0) finishHideAndSeek(io, room, 'SEEKER');
+    return;
+  }
+
+  seeker.status = 'PENALIZED';
+  broadcastRoom(io, room);
+  io.to(room.roomCode).emit('round:verdict', {
+    playerId: seekerId,
+    playerName: seeker.name,
+    verdict,
+    cooldownMs: COOLDOWN_MS,
+  });
+  schedule(room.roomCode, () => {
+    if (room.status === 'HUNTING' && room.players[seekerId]?.status === 'PENALIZED') {
+      room.players[seekerId]!.status = 'SEARCHING';
+      broadcastRoom(io, room);
+    }
+  }, COOLDOWN_MS);
 }
 
 export function giveUpPlayer(io: GameServer, room: RoomState, playerId: string): void {
