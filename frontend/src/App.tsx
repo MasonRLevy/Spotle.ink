@@ -1191,6 +1191,16 @@ useEffect(() => {
             <p className="shrink-0 text-sm text-spotle-navy/70 sm:text-base">
               {webrtc.cameraReady ? 'Camera ready' : 'Starting camera…'}
             </p>
+            {webrtc.cameraReady && !webrtc.micAvailable && (
+              /* In-app browsers (the Google app, Instagram, etc.) block the
+                 mic outright and give no permission prompt to change. The
+                 only fix is opening the site in a real browser. */
+              <p className="shrink-0 px-2 text-sm leading-tight text-red-700">
+                No microphone — voice chat is off. If you opened this from
+                another app, tap ⋯ and choose “Open in Safari” or “Open in
+                Chrome”.
+              </p>
+            )}
 
             {isHost ? (
               <button
@@ -1449,6 +1459,9 @@ function PlayerTile({
         <video
           ref={remoteVideoRef}
           autoPlay
+          // Muted on purpose: voice is played by useWebRTC's dedicated audio
+          // elements so it survives view changes and mobile autoplay rules.
+          muted
           playsInline
           className="h-full w-full object-cover"
         />

@@ -119,7 +119,13 @@ export function pickThemeTarget(theme: ThemeType, usedObjectIds: string[] = []):
   return pool[Math.floor(Math.random() * pool.length)] ?? MASTER_ITEM_DATABASE[0]!;
 }
 
-export function pickRoundTarget(usedObjectIds: string[] = [], theme: ThemeType | null = 'GENERAL'): ScavengerItem {
-  const effectiveTheme = theme ?? 'GENERAL';
-  return pickThemeTarget(effectiveTheme, usedObjectIds);
+/** No theme selected: draw from the whole database rather than a default theme. */
+export function pickAnyTarget(usedObjectIds: string[] = []): ScavengerItem {
+  const eligible = MASTER_ITEM_DATABASE.filter((item) => !usedObjectIds.includes(item.id));
+  const pool = eligible.length > 0 ? eligible : MASTER_ITEM_DATABASE;
+  return pool[Math.floor(Math.random() * pool.length)] ?? MASTER_ITEM_DATABASE[0]!;
+}
+
+export function pickRoundTarget(usedObjectIds: string[] = [], theme: ThemeType | null = null): ScavengerItem {
+  return theme ? pickThemeTarget(theme, usedObjectIds) : pickAnyTarget(usedObjectIds);
 }
