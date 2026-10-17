@@ -10,6 +10,7 @@ import confetti from 'canvas-confetti';
 import {
   Clock,
   Crown,
+  Camera,
   Mic,
   MicOff,
   Settings,
@@ -64,6 +65,9 @@ const arcadeButtonClass =
 
 const lobbyButtonClass =
   'w-full shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-5 py-2.5 text-base text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:py-4 sm:text-xl';
+
+const modeButtonBaseClass =
+  'w-full min-w-0 shrink-0 rounded-full border-4 border-spotle-cream px-1 py-2.5 text-xs transition-transform active:scale-95 disabled:cursor-not-allowed sm:px-3 sm:py-4 sm:text-base';
 
 const taskbarHeightClass = 'h-32';
 
@@ -1188,9 +1192,25 @@ useEffect(() => {
             {webrtc.error && (
               <p className="shrink-0 text-sm text-red-700 sm:text-base">{webrtc.error}</p>
             )}
-            <p className="shrink-0 text-sm text-spotle-navy/70 sm:text-base">
-              {webrtc.cameraReady ? 'Camera ready' : 'Starting camera…'}
-            </p>
+            <div
+              className="flex shrink-0 items-center justify-center gap-3 text-xs text-spotle-navy/70 sm:gap-6 sm:text-sm"
+              aria-live="polite"
+            >
+              <span className="flex items-center gap-1.5">
+                <Camera aria-hidden="true" className="h-4 w-4 shrink-0" />
+                {webrtc.cameraReady ? 'Camera ready' : 'Camera starting…'}
+              </span>
+              <span
+                className={`flex items-center gap-1.5 ${webrtc.micAvailable ? '' : 'text-red-700'}`}
+              >
+                {webrtc.micAvailable ? (
+                  <Mic aria-hidden="true" className="h-4 w-4 shrink-0" />
+                ) : (
+                  <MicOff aria-hidden="true" className="h-4 w-4 shrink-0" />
+                )}
+                {webrtc.micAvailable ? 'Mic ready' : 'Mic unavailable'}
+              </span>
+            </div>
             {webrtc.cameraReady && !webrtc.micAvailable && (
               /* In-app browsers (the Google app, Instagram, etc.) block the
                  mic outright and give no permission prompt to change. The
@@ -1222,24 +1242,24 @@ useEffect(() => {
                   onClick={() => game.setMode(mode)}
                   disabled={!isHost}
                   aria-pressed={room!.settings.mode === mode}
-                  className={`${lobbyButtonClass} px-1 text-xs sm:px-3 sm:text-base ${room!.settings.mode === mode ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100' : ''} relative z-50`}
+                  className={`${modeButtonBaseClass} ${
+                    room!.settings.mode === mode
+                      ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100'
+                      : 'bg-spotle-navy text-spotle-coral disabled:opacity-50'
+                  } relative z-50`}
                 >
                   {mode === 'OBJECTS' ? 'CLASSIC' : mode === 'ME' ? 'ASSASSIN' : 'HIDE N SEEK'}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => setIsThemeModalOpen(true)}
-              disabled={isPlayerHuntMode(room!.settings.mode)}
-              className={`${lobbyButtonClass} relative z-50`}
-            >
-              {isPlayerHuntMode(room!.settings.mode) ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
-            </button>
-            {isPlayerHuntMode(room!.settings.mode) && (
-              <p className="shrink-0 text-sm text-spotle-navy/70">
-                Players will hunt each other! Selfies are required before the round starts.
-              </p>
+            {!isPlayerHuntMode(room!.settings.mode) && (
+              <button
+                type="button"
+                onClick={() => setIsThemeModalOpen(true)}
+                className={`${lobbyButtonClass} relative z-50`}
+              >
+                {getTheme(room!.settings.theme)?.name ?? 'Themes'}
+              </button>
             )}
             <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
@@ -1254,9 +1274,6 @@ useEffect(() => {
             )}
           </div>
         </main>
-        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60]">
-          {renderInkDog()}
-        </div>
       </div>
     );
   }
