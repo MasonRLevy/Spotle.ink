@@ -19,7 +19,7 @@ export function captureVideoFrame(
     throw new Error('Camera frame is not ready yet. Wait a moment and try again.');
   }
 
-  const scale = Math.min(1, maxWidth / video.videoWidth);
+  const scale = Math.min(1, maxWidth / Math.max(video.videoWidth, video.videoHeight));
   const width = Math.max(1, Math.round(video.videoWidth * scale));
   const height = Math.max(1, Math.round(video.videoHeight * scale));
 

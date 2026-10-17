@@ -1012,6 +1012,11 @@ useEffect(() => {
             >
               {room!.settings.mode === 'ME' ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
             </button>
+            {room!.settings.mode === 'ME' && (
+              <p className="shrink-0 text-sm text-spotle-navy/70">
+                Players will hunt each other! Selfies are required before the round starts.
+              </p>
+            )}
             <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
             </button>
@@ -1063,14 +1068,14 @@ useEffect(() => {
             disabled={!webrtc.cameraReady}
             onClick={() => {
               try {
-                game.submitSelfie(webrtc.captureJpeg());
+                game.submitSelfie(webrtc.captureJpeg({ maxWidth: 400, quality: 0.7 }));
             } catch (error) {
                 setCaptureError(error instanceof Error ? error.message : 'Could not capture a selfie.');
               }
             }}
             className={arcadeButtonClass}
           >
-            REGISTER SELFIE
+            TAKE REFERENCE SELFIE
           </button>
         )}
         {captureError && <p className="text-sm text-red-700">{captureError}</p>}
@@ -1310,21 +1315,29 @@ function PlayerTile({
 
 function TargetPanel({ round }: { round: RoundData | null }) {
   if (!round) return null;
+  const isPlayerHunt = round.mode === 'ME';
+  const targetName = round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '');
+  const label = isPlayerHunt ? `HUNT: ${targetName}` : round.targetObject;
   const image = round.targetPlayerSelfie
     ?? (round.visualType === 'image' ? round.visualValue : undefined)
     ?? round.targetIconUrl;
   const TargetIcon = round.visualType === 'lucide' ? targetIcons[round.visualValue ?? ''] : undefined;
   return (
-    <figure className="flex w-24 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-xs text-spotle-coral md:w-56 md:text-lg">
+    <figure className={`flex w-24 max-w-full flex-col items-center text-center text-xs md:w-56 md:text-lg ${isPlayerHunt ? 'gap-2' : 'overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-spotle-coral'}`}>
       {image ? (
-        <img src={image} alt={round.targetObject} className="aspect-square w-full bg-spotle-cream object-cover p-2" />
+        <img
+          src={image}
+          alt={round.targetObject}
+          className={`aspect-square w-full object-cover ${isPlayerHunt ? 'rounded-full border-4 border-red-600 bg-spotle-cream p-1 shadow-[0_0_18px_rgba(220,38,38,0.8)] animate-pulse' : 'bg-spotle-cream p-2'}`}
+        />
       ) : (
         <div className="flex aspect-square w-full items-center justify-center bg-spotle-cream text-5xl text-spotle-navy">
           {TargetIcon ? <TargetIcon aria-hidden="true" size={56} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
         </div>
       )}
       <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
-        {round.targetObject}
+        {label}
+        {!isPlayerHunt && <span className="mt-1 block text-[10px] leading-tight md:text-sm">{round.hint}</span>}
         {round.imageAttribution && (
           <span className="mt-1 block text-[9px] leading-tight md:text-xs">
             Photo:{" "}
@@ -1421,9 +1434,12 @@ function PlayingScreen({
                         {TargetIcon ? <TargetIcon aria-hidden="true" size={72} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
                       </div>
                     )}
-                    <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
-                      {round.targetObject}
+                    <p className={`max-w-full rounded-full px-5 py-3 ${round.mode === 'ME' ? 'bg-red-700 text-white' : 'bg-spotle-navy text-spotle-coral'}`}>
+                      {round.mode === 'ME'
+                        ? `HUNT: ${round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')}`
+                        : round.targetObject}
                     </p>
+                    {round.mode === 'OBJECTS' && <p className="max-w-full text-xs">{round.hint}</p>}
                     {round.imageAttribution && (
                       <p className="max-w-full text-xs leading-tight">
                         Photo:{" "}
