@@ -24,7 +24,7 @@ import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
 
 const maxPlayers = 4;
-const dogSpeed = 5;
+const dogSpeed = 2;
 const pawPrintSpacing = 50;
 const maxPawPrints = 100;
 
@@ -75,7 +75,12 @@ export default function App() {
   const lobbyRef = useRef<HTMLDivElement | null>(null);
   const dogRef = useRef<HTMLImageElement | null>(null);
   const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
+  const dogScaleRef = useRef(1);
   const targetPositionRef = useRef<LobbyPoint | null>(null);
+  const routeControlRef = useRef<LobbyPoint>({ x: 0, y: 0 });
+  const routeProgressRef = useRef(0);
+  const routeLengthRef = useRef(0);
+  const routeBendRef = useRef(1);
   const animationFrameRef = useRef<number | null>(null);
   const pawDistanceRef = useRef(0);
   const dogPositionInitializedRef = useRef(false);
@@ -218,6 +223,15 @@ useEffect(() => {
       };
       dogPositionInitializedRef.current = true;
     }
+    if (!targetPositionRef.current) {
+      const initialTarget = {
+        x: lobby.clientWidth * 0.82,
+        y: lobby.clientHeight * 0.38,
+      };
+      targetPositionRef.current = initialTarget;
+      setTargetPosition(initialTarget);
+      setShowTreasureChest(true);
+    }
     const { x, y } = dogPositionRef.current;
     if (dogRef.current) {
       dogRef.current.style.transform =
@@ -323,8 +337,6 @@ useEffect(() => {
   }
 
   function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
-    if (!(event.target instanceof Element) || event.target.closest('[data-lobby-ui]')) return;
-
     const lobby = lobbyRef.current;
     if (!lobby) return;
 
@@ -347,9 +359,37 @@ useEffect(() => {
     }
 
     targetPositionRef.current = target;
+    const start = dogPositionRef.current;
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
+    const directDistance = Math.hypot(dx, dy);
+    const bendDistance = Math.min(90, Math.max(24, directDistance * 0.18));
+    const bendDirection = routeBendRef.current;
+    routeBendRef.current *= -1;
+    routeControlRef.current = {
+      x: (start.x + target.x) / 2 - (dy / (directDistance || 1)) * bendDistance * bendDirection,
+      y: (start.y + target.y) / 2 + (dx / (directDistance || 1)) * bendDistance * bendDirection,
+    };
+    routeProgressRef.current = 0;
+    let sampledPathLength = 0;
+    let previousPoint = start;
+    for (let sample = 1; sample <= 24; sample += 1) {
+      const t = sample / 24;
+      const inverseT = 1 - t;
+      const point = {
+        x: inverseT * inverseT * start.x
+          + 2 * inverseT * t * routeControlRef.current.x
+          + t * t * target.x,
+        y: inverseT * inverseT * start.y
+          + 2 * inverseT * t * routeControlRef.current.y
+          + t * t * target.y,
+      };
+      sampledPathLength += Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+      previousPoint = point;
+    }
+    routeLengthRef.current = sampledPathLength;
     pawDistanceRef.current = 0;
     setTargetPosition(target);
-    setShowTreasureChest(false);
 
     const animateDog = () => {
       const current = dogPositionRef.current;
@@ -360,28 +400,39 @@ useEffect(() => {
         return;
       }
 
-      const dx = destination.x - current.x;
-      const dy = destination.y - current.y;
-      const distance = Math.hypot(dx, dy);
-      const angle = Math.atan2(dy, dx);
-
-      if (distance < 5) {
+      if (routeLengthRef.current < 5 || routeProgressRef.current >= 1) {
         dogPositionRef.current = destination;
         dog.style.transform =
-          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dx < 0 ? -1 : 1})`;
+          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(1)`;
         animationFrameRef.current = null;
         setShowTreasureChest(true);
         return;
       }
 
-      const step = Math.min(dogSpeed, distance);
+      const oldProgress = routeProgressRef.current;
+      routeProgressRef.current = Math.min(
+        1,
+        oldProgress + dogSpeed / routeLengthRef.current,
+      );
+      const t = routeProgressRef.current;
+      const inverseT = 1 - t;
+      const control = routeControlRef.current;
       const next = {
-        x: current.x + (dx / distance) * step,
-        y: current.y + (dy / distance) * step,
+        x: inverseT * inverseT * start.x
+          + 2 * inverseT * t * control.x
+          + t * t * destination.x,
+        y: inverseT * inverseT * start.y
+          + 2 * inverseT * t * control.y
+          + t * t * destination.y,
       };
+      const dx = next.x - current.x;
+      const dy = next.y - current.y;
+      const step = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
       dogPositionRef.current = next;
+      if (Math.abs(dx) > 0.01) dogScaleRef.current = dx < 0 ? -1 : 1;
       dog.style.transform =
-        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dx < 0 ? -1 : 1})`;
+        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dogScaleRef.current})`;
 
       pawDistanceRef.current += step;
       while (pawDistanceRef.current >= pawPrintSpacing) {
@@ -412,7 +463,7 @@ useEffect(() => {
             src={inkPaw}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-screen"
+            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain"
             style={{
               left: paw.x,
               top: paw.y,
@@ -427,7 +478,7 @@ useEffect(() => {
               src={xMarksTheSpot}
               alt=""
               aria-hidden="true"
-              className="pointer-events-none absolute z-10 h-14 w-14 select-none object-contain mix-blend-screen md:h-16 md:w-16"
+              className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain md:h-28 md:w-28"
               style={{
                 left: targetPosition.x,
                 top: targetPosition.y,
@@ -439,7 +490,7 @@ useEffect(() => {
                 src={treasureChest}
                 alt=""
                 aria-hidden="true"
-                className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-screen md:h-32 md:w-32"
+                className="pointer-events-none absolute z-10 h-16 w-16 select-none object-contain md:h-20 md:w-20"
                 style={{
                   left: targetPosition.x,
                   top: targetPosition.y,
@@ -455,9 +506,9 @@ useEffect(() => {
           src={inkRunning}
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain mix-blend-screen"
+          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain"
           style={{
-            transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(1)`,
+            transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
         />
       </>
@@ -880,7 +931,20 @@ function TargetPanel({ round }: { round: RoundData | null }) {
         alt={round.targetObject}
         className="aspect-square w-full bg-spotle-cream object-contain p-2"
       />
-      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">{round.targetObject}</figcaption>
+      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
+        {round.targetObject}
+        {round.imageAttribution && (
+          <span className="mt-1 block text-[9px] leading-tight md:text-xs">
+            Photo:{" "}
+            <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+              {round.imageAttribution.author}, {round.imageAttribution.license}
+            </a>{" "}
+            <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
+              license
+            </a>
+          </span>
+        )}
+      </figcaption>
     </figure>
   );
 }
@@ -962,6 +1026,17 @@ function PlayingScreen({
                     <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
                       {round.targetObject}
                     </p>
+                    {round.imageAttribution && (
+                      <p className="max-w-full text-xs leading-tight">
+                        Photo:{" "}
+                        <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+                          {round.imageAttribution.author}, {round.imageAttribution.license}
+                        </a>{" "}
+                        <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
+                          license
+                        </a>
+                      </p>
+                    )}
                   </>
                 )}
               </div>

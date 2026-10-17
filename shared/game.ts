@@ -41,6 +41,13 @@ export interface Player {
   lastAttemptImage?: string;
 }
 
+export interface ImageAttribution {
+  author: string;
+  sourceUrl: string;
+  license: string;
+  licenseUrl: string;
+}
+
 export interface RoundData {
   roundNumber: number;
   /** Object id from the curated pool, e.g. "coffee-mug". */
@@ -48,6 +55,7 @@ export interface RoundData {
   targetObject: string;
   /** Fluent flat SVG shown dead-center as the on-screen prompt. */
   targetIconUrl: string;
+  imageAttribution?: ImageAttribution;
   hint: string;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
   startTime: number;

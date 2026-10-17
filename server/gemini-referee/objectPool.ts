@@ -1,5 +1,6 @@
 import type {
   FindableObject,
+  ImageAttribution,
   ObjectCategory,
   ObjectDifficulty,
   RandomObjectOptions,
@@ -47,24 +48,44 @@ function item(
   };
 }
 
-const UF_LANDMARK_PHOTOS: Record<string, string> = {
-  "century-tower": "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80",
-  "french-fries-sculpture": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
-  "blue-light-emergency-box": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80",
-  "bull-gator-statue": "https://images.unsplash.com/photo-1460661419201-fd4cecdf8a8b?auto=format&fit=crop&w=1200&q=80",
-  "turlington-rock": "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80",
-  "gator-id-card": "https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=1200&q=80",
-  "gator-gear": "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=1200&q=80",
+const UF_LANDMARK_PHOTOS: Record<string, { url: string; attribution: ImageAttribution }> = {
+  "century-tower": {
+    url: "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/03/Century_Tower_%28University_of_Florida%29.jpg/960px-Century_Tower_%28University_of_Florida%29.jpg",
+    attribution: {
+      author: "Kate Haskell",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:Century_Tower_(University_of_Florida).jpg",
+      license: "CC BY 2.0",
+      licenseUrl: "https://creativecommons.org/licenses/by/2.0/",
+    },
+  },
+  "french-fries-sculpture": {
+    url: "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Dsg_UF_French_Fries_Sculpture_20050507.jpg/960px-Dsg_UF_French_Fries_Sculpture_20050507.jpg",
+    attribution: {
+      author: "Douglas Green",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:Dsg_UF_French_Fries_Sculpture_20050507.jpg",
+      license: "CC BY 2.0",
+      licenseUrl: "https://creativecommons.org/licenses/by/2.0/",
+    },
+  },
+  "turlington-rock": {
+    url: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/61/UF_TurlingtonRock.jpg/960px-UF_TurlingtonRock.jpg",
+    attribution: {
+      author: "WillMcC",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:UF_TurlingtonRock.jpg",
+      license: "CC BY-SA 3.0",
+      licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/",
+    },
+  },
 };
 
 const campusLandmarks = [
-  ["century-tower", "Century Tower", "MEDIUM", "🕰️", "clock", "Century Tower, bell tower, UF carillon, tall clock tower on campus", UF_LANDMARK_PHOTOS["century-tower"]],
-  ["french-fries-sculpture", "French Fries Sculpture", "MEDIUM", "✨", "sparkles", "French Fries sculpture, yellow art sculpture, Marston sculpture, modern art on campus", UF_LANDMARK_PHOTOS["french-fries-sculpture"]],
-  ["blue-light-emergency-box", "Blue Light Emergency Box", "EASY", "🛡️", "shield", "blue light emergency box, campus safety box, emergency call box, blue light pole", UF_LANDMARK_PHOTOS["blue-light-emergency-box"]],
-  ["bull-gator-statue", "Bull Gator Statue", "HARD", "🐊", "mountain", "Bull Gator statue, bronze gator, stadium gator statue, giant lizard statue", UF_LANDMARK_PHOTOS["bull-gator-statue"]],
-  ["turlington-rock", "Turlington Hall Rock", "HARD", "🪨", "mountain", "Turlington rock, the potato, limestone boulder, the giant rock in Turlington Plaza", UF_LANDMARK_PHOTOS["turlington-rock"]],
-  ["gator-id-card", "Gator 1 Card", "EASY", "🪪", "identification-card", "Gator 1 card, student ID, UF ID, campus badge, ID card", UF_LANDMARK_PHOTOS["gator-id-card"]],
-  ["gator-gear", "Orange or Blue Gator Gear", "EASY", "🎨", "paint-palette", "orange shirt, blue hoodie, Gator apparel, UF colors clothing", UF_LANDMARK_PHOTOS["gator-gear"]],
+  ["century-tower", "Century Tower", "MEDIUM", "🕰️", "clock", "Century Tower, bell tower, UF carillon, tall clock tower on campus", UF_LANDMARK_PHOTOS["century-tower"].url],
+  ["french-fries-sculpture", "French Fries Sculpture", "MEDIUM", "✨", "sparkles", "French Fries sculpture, yellow art sculpture, Marston sculpture, modern art on campus", UF_LANDMARK_PHOTOS["french-fries-sculpture"].url],
+  ["blue-light-emergency-box", "Blue Light Emergency Box", "EASY", "🛡️", "telephone", "blue light emergency phone pole, campus safety phone, emergency call box"],
+  ["bull-gator-statue", "Bull Gator Statue", "HARD", "🐊", "crocodile", "Bull Gator statue, bronze gator, stadium gator statue, giant alligator sculpture"],
+  ["turlington-rock", "Turlington Hall Rock", "HARD", "🪨", "mountain", "Turlington rock, the potato, limestone boulder, the giant rock in Turlington Plaza", UF_LANDMARK_PHOTOS["turlington-rock"].url],
+  ["gator-id-card", "Gator 1 Card", "EASY", "🪪", "identification-card", "Gator 1 card, student ID, UF ID, campus badge, ID card"],
+  ["gator-gear", "Orange or Blue Gator Gear", "EASY", "🎨", "t-shirt", "orange shirt, blue hoodie, Gator apparel, UF colors clothing"],
 ] as const;
 
 const hackathonObjects = [
@@ -227,8 +248,8 @@ const itemSpecs = [
  * household, personal, and hackathon-friendly objects with photo-backed targets
  * for real-world landmarks when available.
  */
-export const OBJECT_POOL: FindableObject[] = itemSpecs.map(([id, name, difficulty, emoji, iconName, examples, imageUrl]) =>
-  item(
+export const OBJECT_POOL: FindableObject[] = itemSpecs.map(([id, name, difficulty, emoji, iconName, examples, imageUrl]) => {
+  const object = item(
     id as string,
     name as string,
     id.includes("tower") || id.includes("statue") || id.includes("rock") || id.includes("gator") || id.includes("emergency") ? "HACKATHON_CAMPUS" : "HOUSEHOLD",
@@ -238,8 +259,12 @@ export const OBJECT_POOL: FindableObject[] = itemSpecs.map(([id, name, difficult
     iconName as string,
     examples as string,
     imageUrl as string | undefined,
-  ),
-);
+  );
+  return {
+    ...object,
+    imageAttribution: UF_LANDMARK_PHOTOS[id as string]?.attribution,
+  };
+});
 
 export function getAllObjects(): FindableObject[] {
   return [...OBJECT_POOL];
