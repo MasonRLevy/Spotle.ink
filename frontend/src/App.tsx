@@ -34,6 +34,7 @@ import dogMouthOpen from './assets/Spot_mouth_open.png';
 import inkRunning from './assets/Ink_running.gif';
 import inkSitting from './assets/Ink_sit.png';
 import inkHouse from './assets/Ink_house.png';
+import grassTexture from './assets/isometric-pixel-art-grass-tile-22c1.png';
 import gatorLogo from './assets/Gator.webp';
 import hornsDownImage from './assets/Screenshot 2026-10-17 at 6.35.02 PM.png';
 import inkPaw from './assets/Ink_paw.png';
@@ -910,27 +911,31 @@ useEffect(() => {
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-0 isolate overflow-hidden"
         >
+          <div
+            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
+          />
+          <img
+            ref={desktopHouseRef}
+            src={inkHouse}
+            alt=""
+            aria-hidden="true"
+            onLoad={initializeDogNearHouse}
+            className="absolute bottom-6 left-6 z-10 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
+          />
+          <img
+            ref={mobileHouseRef}
+            src={inkHouse}
+            alt=""
+            aria-hidden="true"
+            onLoad={initializeDogNearHouse}
+            className="absolute bottom-4 left-2 z-10 h-auto w-72 select-none object-contain mix-blend-multiply md:hidden"
+          />
           {renderInkMiniGame()}
         </div>
-        <img
-          ref={desktopHouseRef}
-          src={inkHouse}
-          alt=""
-          aria-hidden="true"
-          onLoad={initializeDogNearHouse}
-          className="absolute bottom-6 left-6 z-40 hidden h-auto w-96 select-none object-contain mix-blend-multiply md:block md:w-[432px]"
-        />
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 text-center sm:gap-8 sm:p-6">
           <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
             <div className="flex w-full max-w-sm flex-col items-center gap-3 sm:gap-5">
-              <img
-                ref={mobileHouseRef}
-                src={inkHouse}
-                alt=""
-                aria-hidden="true"
-                onLoad={initializeDogNearHouse}
-                className="relative top-2 h-auto w-64 select-none object-contain mix-blend-multiply md:hidden"
-              />
               <img src={spotleLogo} alt="Spotle" className="relative top-2 w-full max-w-md" />
               <label className="w-full text-center text-lg sm:text-xl">
                 Your Name
@@ -939,7 +944,7 @@ useEffect(() => {
                   value={playerName}
                   onChange={(event) => setPlayerName(event.target.value)}
                   placeholder="Enter your name"
-                  className="mt-2 w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-4 text-center text-xl text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
+                  className="mt-2 block w-full rounded-[2rem] border-4 border-spotle-navy bg-spotle-navy px-6 py-4 text-center text-xl leading-7 text-spotle-coral placeholder:text-spotle-cream/70 focus:outline-4 focus:outline-spotle-navy"
                 />
               </label>
               <button
@@ -1139,6 +1144,15 @@ useEffect(() => {
       <div
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+        >
+          <div
+            className="absolute inset-0 bg-repeat opacity-[0.12]"
+            style={{ backgroundImage: `url(${grassTexture})`, backgroundSize: '176px 176px' }}
+          />
+        </div>
         <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:h-auto sm:min-h-screen sm:overflow-visible sm:p-6">
           <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:h-auto sm:gap-5 sm:py-4">
             <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
