@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Peer, { type MediaConnection } from 'peerjs';
-import { captureVideoFrame } from '../utils/captureFrame';
+import { captureVideoFrame, type CaptureFrameOptions } from '../utils/captureFrame';
 
 export type FacingMode = 'user' | 'environment';
 
@@ -382,12 +382,12 @@ export function useWebRTC(options: {
     }
   }, [attachLocalVideo, isFlipping, replaceVideoTrackOnCalls]);
 
-  const captureJpeg = useCallback(() => {
+  const captureJpeg = useCallback((options: CaptureFrameOptions = {}) => {
     const video = localVideoEl.current;
     if (!video) {
       throw new Error('Local video is not mounted.');
     }
-    return captureVideoFrame(video);
+    return captureVideoFrame(video, options);
   }, []);
 
   return {

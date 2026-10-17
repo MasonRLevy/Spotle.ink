@@ -45,6 +45,8 @@ export interface VerifyObjectPhotoInput {
   targetObject: string;
   imageBase64: string;
   playerName?: string;
+  acceptedVariations?: string[];
+  cheatRisks?: string[];
 }
 
 export interface RandomObjectOptions {

@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import type { ScavengerItem } from "../../shared/game.js";
 import type {
   MatchQuality,
   VerificationResponse,
@@ -213,6 +214,8 @@ export async function verifyObjectPhotoDetailed({
   targetObject,
   imageBase64,
   playerName,
+  acceptedVariations,
+  cheatRisks,
 }: VerifyObjectPhotoInput): Promise<VerifyResult> {
   if (!targetObject?.trim()) {
     throw new Error("targetObject is required");
@@ -249,7 +252,15 @@ export async function verifyObjectPhotoDetailed({
             role: "user",
             parts: [
               {
-                text: `Player "${who}" claims they found: "${targetObject.trim()}". Referee this photo now.`,
+                text: [
+                  `Player "${who}" claims they found: "${targetObject.trim()}". Referee this photo now.`,
+                  acceptedVariations?.length
+                    ? `Accepted physical variations: ${acceptedVariations.join(", ")}.`
+                    : "",
+                  cheatRisks?.length
+                    ? `Item-specific screen/photo cheat risks to check: ${cheatRisks.join(", ")}.`
+                    : "",
+                ].filter(Boolean).join(" "),
               },
               { inlineData: { mimeType, data } },
             ],
@@ -302,6 +313,20 @@ export async function verifyObjectPhoto(
 ): Promise<VerificationResponse> {
   const { verdict } = await verifyObjectPhotoDetailed(input);
   return verdict;
+}
+
+export async function verifyObjectHunt(
+  item: ScavengerItem,
+  capturedFrameBase64: string,
+  playerName: string,
+): Promise<VerificationResponse> {
+  return verifyObjectPhoto({
+    targetObject: item.name,
+    imageBase64: capturedFrameBase64,
+    playerName,
+    acceptedVariations: item.aliases,
+    cheatRisks: item.cheatRisks,
+  });
 }
 
 export async function verifyPlayerHunt({

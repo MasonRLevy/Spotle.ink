@@ -11,7 +11,7 @@ import type {
   VerificationResponse,
 } from '../../shared/game.js';
 import { pointsForPlacement } from '../../shared/game.js';
-import { verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
+import { verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
 import { MASTER_ITEM_DATABASE, pickThemeTarget } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
 
@@ -167,8 +167,13 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
 
   const theme = room.settings.theme ?? 'GENERAL';
   const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
-  const pick = (forcedId && MASTER_ITEM_DATABASE.find((item) => item.id === forcedId))
-    ?? pickThemeTarget(theme, room.usedObjects);
+  // Resolve the override separately: `(forcedId && find(...)) ?? fallback`
+  // yields '' when the env var is set but empty, because ?? only catches
+  // null/undefined - which then blew up on pick.id.
+  const forced = forcedId
+    ? MASTER_ITEM_DATABASE.find((item) => item.id === forcedId)
+    : undefined;
+  const pick = forced ?? pickThemeTarget(theme, room.usedObjects);
 
   const round: RoundData = {
     roundNumber,
@@ -242,11 +247,16 @@ export async function handleAttempt(
         hunterName: player.name,
       });
     } else {
-      verdict = await verifyObjectPhoto({
-        targetObject: round.targetObject,
-        imageBase64: imageDataUrl,
-        playerName: player.name,
-      });
+      const item = round.targetId
+        ? MASTER_ITEM_DATABASE.find((candidate) => candidate.id === round.targetId)
+        : undefined;
+      verdict = item
+        ? await verifyObjectHunt(item, imageDataUrl, player.name)
+        : await verifyObjectPhoto({
+            targetObject: round.targetObject,
+            imageBase64: imageDataUrl,
+            playerName: player.name,
+          });
     }
   } catch (error) {
     console.error('[gameEngine] verification error:', error);

@@ -1139,21 +1139,21 @@ useEffect(() => {
       <div
         className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
       >
-        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:p-6">
-          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:gap-5 sm:py-4">
+        <main data-lobby-ui className="relative z-50 mx-auto flex h-[100dvh] w-full max-w-3xl flex-col items-center justify-center overflow-hidden p-3 text-center sm:h-auto sm:min-h-screen sm:overflow-visible sm:p-6">
+          <div className="flex h-full w-[min(92vw,28rem)] flex-col items-center justify-center gap-2 py-2 sm:h-auto sm:gap-5 sm:py-4">
             <p className="shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-2 text-xl text-spotle-coral sm:px-8 sm:py-4 sm:text-2xl">
               PIN: {room!.roomCode}
             </p>
             {/* The grid is the only flexible row: it gives up height first so
                 the PIN and the buttons always stay on screen. Capped at its own
                 width so tiles stay square on roomy screens. */}
-            <ul className="grid min-h-0 w-full flex-1 grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:gap-3" style={{ maxHeight: 'min(92vw, 28rem)' }}>
+            <ul className="grid min-h-0 w-full flex-1 max-h-[min(92vw,28rem)] grid-cols-[repeat(2,minmax(0,1fr))] grid-rows-2 place-items-center gap-2 sm:max-h-none sm:flex-none sm:gap-3">
               {Array.from({ length: maxPlayers }, (_, index) => {
                 const player = players[index];
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:rounded-[2rem] sm:text-lg"
+                    className="aspect-square h-full w-auto max-w-full min-h-0 min-w-0 overflow-hidden break-words rounded-[1.5rem] border-4 border-spotle-cream bg-spotle-navy text-center text-base text-spotle-coral sm:h-auto sm:w-full sm:max-w-none sm:rounded-[2rem] sm:text-lg"
                   >
                     {player ? (
                       <LobbyCamTile
@@ -1222,6 +1222,11 @@ useEffect(() => {
             >
               {room!.settings.mode === 'ME' ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
             </button>
+            {room!.settings.mode === 'ME' && (
+              <p className="shrink-0 text-sm text-spotle-navy/70">
+                Players will hunt each other! Selfies are required before the round starts.
+              </p>
+            )}
             <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
             </button>
@@ -1244,13 +1249,24 @@ useEffect(() => {
       <main className="flex min-h-screen flex-col items-center justify-center gap-5 bg-spotle-cream p-6 text-center font-pixel text-spotle-navy">
         <h1 className="text-3xl">Register Your Face</h1>
         <p className="max-w-lg text-base">Take a live selfie so the referee can verify player hunts. Your image stays private to the game server.</p>
-        <div className="aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
-          <LobbyCamTile
-            stream={webrtc.localStream}
-            label={me?.name ?? 'You'}
-            mirrored={webrtc.facingMode === 'user'}
-            placeholder="Starting camera…"
-          />
+        <div className="relative aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
+          {webrtc.localStream ? (
+            <video
+              ref={webrtc.localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Selfie camera preview"
+              className={`h-full w-full object-cover ${webrtc.facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-3 text-center text-spotle-coral">
+              Starting camera…
+            </div>
+          )}
+          <p className="absolute inset-x-0 bottom-0 truncate bg-spotle-navy/80 px-2 py-1 text-center text-sm text-spotle-coral">
+            {me?.name ?? 'You'}
+          </p>
         </div>
         {webrtc.error && <p className="text-sm text-red-700">{webrtc.error}</p>}
         {game.error && <p className="text-sm text-red-700">{game.error}</p>}
@@ -1262,14 +1278,14 @@ useEffect(() => {
             disabled={!webrtc.cameraReady}
             onClick={() => {
               try {
-                game.submitSelfie(webrtc.captureJpeg());
+                game.submitSelfie(webrtc.captureJpeg({ maxWidth: 400, quality: 0.7 }));
             } catch (error) {
                 setCaptureError(error instanceof Error ? error.message : 'Could not capture a selfie.');
               }
             }}
             className={arcadeButtonClass}
           >
-            REGISTER SELFIE
+            TAKE REFERENCE SELFIE
           </button>
         )}
         {captureError && <p className="text-sm text-red-700">{captureError}</p>}
@@ -1509,21 +1525,29 @@ function PlayerTile({
 
 function TargetPanel({ round }: { round: RoundData | null }) {
   if (!round) return null;
+  const isPlayerHunt = round.mode === 'ME';
+  const targetName = round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '');
+  const label = isPlayerHunt ? `HUNT: ${targetName}` : round.targetObject;
   const image = round.targetPlayerSelfie
     ?? (round.visualType === 'image' ? round.visualValue : undefined)
     ?? round.targetIconUrl;
   const TargetIcon = round.visualType === 'lucide' ? targetIcons[round.visualValue ?? ''] : undefined;
   return (
-    <figure className="flex w-24 max-w-full flex-col items-center overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-center text-xs text-spotle-coral md:w-56 md:text-lg">
+    <figure className={`flex w-24 max-w-full flex-col items-center text-center text-xs md:w-56 md:text-lg ${isPlayerHunt ? 'gap-2' : 'overflow-hidden rounded-t-full rounded-b-2xl border-4 border-spotle-cream bg-spotle-navy text-spotle-coral'}`}>
       {image ? (
-        <img src={image} alt={round.targetObject} className="aspect-square w-full bg-spotle-cream object-cover p-2" />
+        <img
+          src={image}
+          alt={round.targetObject}
+          className={`aspect-square w-full object-cover ${isPlayerHunt ? 'rounded-full border-4 border-red-600 bg-spotle-cream p-1 shadow-[0_0_18px_rgba(220,38,38,0.8)] animate-pulse' : 'bg-spotle-cream p-2'}`}
+        />
       ) : (
         <div className="flex aspect-square w-full items-center justify-center bg-spotle-cream text-5xl text-spotle-navy">
           {TargetIcon ? <TargetIcon aria-hidden="true" size={56} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
         </div>
       )}
       <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
-        {round.targetObject}
+        {label}
+        {!isPlayerHunt && <span className="mt-1 block text-[10px] leading-tight md:text-sm">{round.hint}</span>}
         {round.imageAttribution && (
           <span className="mt-1 block text-[9px] leading-tight md:text-xs">
             Photo:{" "}
@@ -1620,9 +1644,12 @@ function PlayingScreen({
                         {TargetIcon ? <TargetIcon aria-hidden="true" size={72} /> : round.visualType === 'emoji' ? round.visualValue : '🎯'}
                       </div>
                     )}
-                    <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
-                      {round.targetObject}
+                    <p className={`max-w-full rounded-full px-5 py-3 ${round.mode === 'ME' ? 'bg-red-700 text-white' : 'bg-spotle-navy text-spotle-coral'}`}>
+                      {round.mode === 'ME'
+                        ? `HUNT: ${round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')}`
+                        : round.targetObject}
                     </p>
+                    {round.mode === 'OBJECTS' && <p className="max-w-full text-xs">{round.hint}</p>}
                     {round.imageAttribution && (
                       <p className="max-w-full text-xs leading-tight">
                         Photo:{" "}

@@ -41,7 +41,7 @@ export interface UseGameSocket {
   createRoom: (name: string) => Promise<JoinAck>;
   joinRoom: (pin: string, name: string) => Promise<JoinAck>;
   registerPeerId: (peerId: string) => void;
-  setTheme: (theme: ThemeId | null) => void;
+  setTheme: (theme: ThemeType | null) => void;
   setMode: (mode: GameMode) => void;
   submitSelfie: (selfieBase64: string) => void;
   startGame: () => void;
