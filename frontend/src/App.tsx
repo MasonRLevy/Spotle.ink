@@ -17,7 +17,7 @@ import xMarksTheSpot from './assets/X_marks_the_spot.png';
 import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
-import { PixelCamTile } from './components/PixelCamTile';
+import { LobbyCamTile } from './components/LobbyCamTile';
 import type { Player, RoundData } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
@@ -621,7 +621,7 @@ export default function App() {
                     className="aspect-square min-h-0 min-w-0 w-full overflow-hidden break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy text-center text-lg text-spotle-coral"
                   >
                     {player ? (
-                      <PixelCamTile
+                      <LobbyCamTile
                         stream={
                           player.id === game.playerId
                             ? webrtc.localStream
