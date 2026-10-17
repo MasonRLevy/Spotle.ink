@@ -6,7 +6,9 @@
   src: url('./assets/BoldsPixels.ttf') format('truetype');
   font-style: normal;
   font-weight: normal;
-  font-display: swap;
+  /* block, not swap: show nothing briefly rather than flashing the fallback
+     and swapping. The preload in index.html keeps that window very short. */
+  font-display: block;
 }
 
 html,
