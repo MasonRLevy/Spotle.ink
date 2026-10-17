@@ -97,6 +97,7 @@ export default function App() {
   const miniGameItemIdRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const idleTimerRef = useRef<number | null>(null);
+  const settleTimerRef = useRef<number | null>(null);
   const lastPrintPositionRef = useRef<LobbyPoint | null>(null);
   const dogPositionInitializedRef = useRef(false);
 
@@ -238,6 +239,10 @@ useEffect(() => {
         window.clearTimeout(idleTimerRef.current);
         idleTimerRef.current = null;
       }
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
       return;
     }
 
@@ -256,6 +261,9 @@ useEffect(() => {
       }
       if (idleTimerRef.current !== null) {
         window.clearTimeout(idleTimerRef.current);
+      }
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
       }
     },
     [],
@@ -391,6 +399,10 @@ useEffect(() => {
     if (!lobby) return;
     initializeDogNearHouse();
 
+    if (settleTimerRef.current !== null) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
     }
@@ -406,16 +418,18 @@ useEffect(() => {
     const ny = directDistance === 0 ? 0 : dx / directDistance;
     const midX = (start.x + target.x) / 2;
     const midY = (start.y + target.y) / 2;
-    const rand = Math.random();
     let offsetMag = 0;
-    if (rand < 0.25) {
-      offsetMag = 0;
-    } else if (rand < 0.5) {
-      offsetMag = Math.random() * 400 + 300;
-    } else {
-      offsetMag = Math.random() * 150 + 50;
+    if (directDistance >= 240) {
+      const rand = Math.random();
+      if (rand < 0.25) {
+        offsetMag = 0;
+      } else if (rand < 0.5) {
+        offsetMag = Math.random() * 400 + 300;
+      } else {
+        offsetMag = Math.random() * 150 + 50;
+      }
+      offsetMag *= Math.random() > 0.5 ? 1 : -1;
     }
-    offsetMag *= Math.random() > 0.5 ? 1 : -1;
     routeControlRef.current = {
       x: midX + nx * offsetMag,
       y: midY + ny * offsetMag,
@@ -473,13 +487,46 @@ useEffect(() => {
           `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dogScaleRef.current})`;
         animationFrameRef.current = null;
         targetPositionRef.current = null;
-        setIsMoving(false);
         setActiveX(null);
         if (!returningToHouse) {
           setPastChests((chests) => [
             ...chests,
             { ...destination, id: miniGameItemIdRef.current++ },
           ]);
+          const arrival = destination;
+          settleTimerRef.current = window.setTimeout(() => {
+            settleTimerRef.current = null;
+            const currentLobby = lobbyRef.current;
+            if (!currentLobby) return;
+            const sitOffset = 104;
+            const margin = 52;
+            const candidates = [
+              { x: arrival.x + sitOffset, y: arrival.y },
+              { x: arrival.x - sitOffset, y: arrival.y },
+              { x: arrival.x, y: arrival.y - sitOffset },
+              { x: arrival.x, y: arrival.y + sitOffset },
+            ].map((point) => ({
+              x: Math.max(margin, Math.min(currentLobby.clientWidth - margin, point.x)),
+              y: Math.max(margin, Math.min(currentLobby.clientHeight - margin, point.y)),
+            }));
+            const sitPosition = candidates.find(
+              (point) => Math.hypot(point.x - arrival.x, point.y - arrival.y) >= sitOffset,
+            ) ?? candidates.reduce((farthest, point) =>
+              Math.hypot(point.x - arrival.x, point.y - arrival.y)
+                > Math.hypot(farthest.x - arrival.x, farthest.y - arrival.y)
+                ? point
+                : farthest,
+            );
+            dogPositionRef.current = sitPosition;
+            dogScaleRef.current = sitPosition.x < arrival.x ? -1 : 1;
+            if (dogRef.current) {
+              dogRef.current.style.transform =
+                `translate(-50%, -50%) translate(${sitPosition.x}px, ${sitPosition.y}px) scaleX(${dogScaleRef.current})`;
+            }
+            setIsMoving(false);
+          }, 1000);
+        } else {
+          setIsMoving(false);
         }
         return;
       }
@@ -556,6 +603,7 @@ useEffect(() => {
   function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
     const lobby = lobbyRef.current;
     if (!lobby) return;
+    if (event.target instanceof Element && event.target.closest('button')) return;
 
     const bounds = lobby.getBoundingClientRect();
     const target = {
@@ -625,7 +673,7 @@ useEffect(() => {
           src={isMoving ? inkRunning : inkSitting}
           alt=""
           aria-hidden="true"
-          className={`pointer-events-none absolute left-0 top-0 z-10 h-48 w-48 select-none object-contain ${isMoving ? '' : 'mix-blend-multiply'}`}
+          className={`pointer-events-none absolute left-0 top-0 z-10 select-none object-contain ${isMoving ? 'h-48 w-48' : 'h-24 w-24 mix-blend-multiply'}`}
           style={{
             transform: `translate(-50%, -50%) translate(${dogPositionRef.current.x}px, ${dogPositionRef.current.y}px) scaleX(${dogScaleRef.current})`,
           }}
@@ -658,7 +706,7 @@ useEffect(() => {
           alt=""
           aria-hidden="true"
           onLoad={initializeDogNearHouse}
-          className="absolute bottom-6 left-6 z-40 hidden h-auto w-40 select-none object-contain mix-blend-multiply md:block md:w-48"
+          className="absolute bottom-6 left-6 z-40 hidden h-auto w-64 select-none object-contain mix-blend-multiply md:block md:w-72"
         />
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <section className="flex w-full flex-col items-center gap-6" aria-live="polite">
@@ -669,7 +717,7 @@ useEffect(() => {
                 alt=""
                 aria-hidden="true"
                 onLoad={initializeDogNearHouse}
-                className="h-auto w-28 select-none object-contain mix-blend-multiply md:hidden"
+                className="h-auto w-40 select-none object-contain mix-blend-multiply md:hidden"
               />
               <img src={spotleLogo} alt="Spotle" className="-translate-y-3 w-full max-w-md" />
               <label className="w-full text-center text-xl">
