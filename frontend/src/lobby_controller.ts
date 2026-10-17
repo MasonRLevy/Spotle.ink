@@ -3,9 +3,27 @@ interface RoomState {
     players: string[];
 }
 
-// Point directly to your FastAPI backend server
-const BACKEND_URL = "http://127.0.0.1:8000";
-const WS_BACKEND_URL = "ws://127.0.0.1:8000";
+// Safely resolve the backend IP with a debug check
+// Safely resolve the backend configuration
+const customIp = import.meta.env.VITE_BACKEND_IP;
+const hostIp = customIp || window.location.hostname;
+
+console.log("[CONFIG DEBUG] VITE_BACKEND_IP:", customIp);
+console.log("[CONFIG DEBUG] Resolved hostIp for connections:", hostIp);
+
+// Check if we are using a public ngrok tunnel or secure HTTPS connection
+const isSecure = hostIp.includes("ngrok") || window.location.protocol === "https:";
+const protocolHttp = isSecure ? "https" : "http";
+const protocolWs = isSecure ? "wss" : "ws";
+
+// If using ngrok, omit the port because ngrok tunnels standard traffic directly
+const portString = hostIp.includes("ngrok") ? "" : ":8000";
+
+const BACKEND_URL = `${protocolHttp}://${hostIp}${portString}`;
+const WS_BACKEND_URL = `${protocolWs}://${hostIp}${portString}`;
+
+console.log("[CONFIG DEBUG] BACKEND_URL:", BACKEND_URL);
+console.log("[CONFIG DEBUG] WS_BACKEND_URL:", WS_BACKEND_URL);
 
 let ws: WebSocket | null = null;
 let currentPin: string = "";
@@ -23,7 +41,7 @@ function log(msg: string) {
 
 function updateUIState(pin: string, state?: RoomState) {
     const pinEl = document.getElementById("current-pin");
-    if (pinEl) pinEl.innerText = pin;
+    if (pinEl) pinEl.innerText = pin !== "" ? pin : "None";
 
     const listEl = document.getElementById("player-list");
     if (listEl) {
@@ -35,7 +53,7 @@ function updateUIState(pin: string, state?: RoomState) {
                 li.innerText = p;
                 listEl.appendChild(li);
             });
-        } else if (pin !== "None") {
+        } else if (pin && pin !== "None") {
             const li = document.createElement("li");
             li.innerText = myName + (isHost ? " (Host)" : " (Player)");
             listEl.appendChild(li);
@@ -48,13 +66,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const usernameInput = document.getElementById("username") as HTMLInputElement;
     const pinInput = document.getElementById("pin-input") as HTMLInputElement;
-    const btnHost = document.getElementById("btn-host");
-    const btnJoin = document.getElementById("btn-join");
+    const btnHost = document.getElementById("btn-host") as HTMLButtonElement;
+    const btnJoin = document.getElementById("btn-join") as HTMLButtonElement;
 
     // 1. Host Game Click Handler
     btnHost?.addEventListener("click", async () => {
-        myName = usernameInput?.value || "Player1";
+        myName = usernameInput?.value.trim() || "Player1";
         log(`[SYSTEM]: Requesting room creation as host (${myName})...`);
+
+        // Disable button to prevent double-clicks/spam
+        if (btnHost) btnHost.disabled = true;
 
         try {
             const res = await fetch(`${BACKEND_URL}/api/create-room`, {
@@ -78,12 +99,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         } catch (err) {
             log(`[ERROR]: Failed to host game -> ${err}`);
+            cleanup();
+        } finally {
+            if (btnHost) btnHost.disabled = false;
         }
     });
 
     // 2. Join Game Click Handler
     btnJoin?.addEventListener("click", () => {
-        myName = usernameInput?.value || "Player1";
+        myName = usernameInput?.value.trim() || "Player1";
         const pinVal = pinInput?.value.trim();
 
         if (!pinVal || pinVal.length !== 6) {
@@ -135,7 +159,12 @@ function connectWebSocket(url: string) {
     };
 
     ws.onerror = (err) => {
-        log(`[WS ERROR]: ${JSON.stringify(err)}`);
+        log(`[WS ERROR]: Connection failed or dropped.`);
+        console.error(err);
+        // If connection fails right away, cleanup state so user isn't stuck in limbo
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+            cleanup();
+        }
     };
 }
 
