@@ -1034,13 +1034,24 @@ useEffect(() => {
       <main className="flex min-h-screen flex-col items-center justify-center gap-5 bg-spotle-cream p-6 text-center font-pixel text-spotle-navy">
         <h1 className="text-3xl">Register Your Face</h1>
         <p className="max-w-lg text-base">Take a live selfie so the referee can verify player hunts. Your image stays private to the game server.</p>
-        <div className="aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
-          <LobbyCamTile
-            stream={webrtc.localStream}
-            label={me?.name ?? 'You'}
-            mirrored={webrtc.facingMode === 'user'}
-            placeholder="Starting camera…"
-          />
+        <div className="relative aspect-square w-full max-w-sm overflow-hidden rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy">
+          {webrtc.localStream ? (
+            <video
+              ref={webrtc.localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Selfie camera preview"
+              className={`h-full w-full object-cover ${webrtc.facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-3 text-center text-spotle-coral">
+              Starting camera…
+            </div>
+          )}
+          <p className="absolute inset-x-0 bottom-0 truncate bg-spotle-navy/80 px-2 py-1 text-center text-sm text-spotle-coral">
+            {me?.name ?? 'You'}
+          </p>
         </div>
         {webrtc.error && <p className="text-sm text-red-700">{webrtc.error}</p>}
         {game.error && <p className="text-sm text-red-700">{game.error}</p>}
