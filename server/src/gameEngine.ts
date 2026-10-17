@@ -78,6 +78,7 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
     targetId: pick.id,
     targetObject: pick.name,
     targetIconUrl: pick.flatSvgUrl,
+    imageAttribution: pick.imageAttribution,
     hint: pick.examples,
     difficulty: pick.difficulty,
     startTime: Date.now(),

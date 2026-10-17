@@ -1,3 +1,5 @@
+import type { ImageAttribution } from "../../shared/game.js";
+
 export type ObjectCategory = "HACKATHON_CAMPUS" | "HOUSEHOLD";
 export type ObjectDifficulty = "EASY" | "MEDIUM" | "HARD";
 
@@ -16,6 +18,7 @@ export interface FindableObject {
   emoji: string;
   unicodeHex: string;
   flatSvgUrl: string;
+  imageAttribution?: ImageAttribution;
   examples: string;
 }
 

@@ -930,7 +930,20 @@ function TargetPanel({ round }: { round: RoundData | null }) {
         alt={round.targetObject}
         className="aspect-square w-full bg-spotle-cream object-contain p-2"
       />
-      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">{round.targetObject}</figcaption>
+      <figcaption className="w-full px-2 py-2 md:px-4 md:py-3">
+        {round.targetObject}
+        {round.imageAttribution && (
+          <span className="mt-1 block text-[9px] leading-tight md:text-xs">
+            Photo:{" "}
+            <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+              {round.imageAttribution.author}, {round.imageAttribution.license}
+            </a>{" "}
+            <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
+              license
+            </a>
+          </span>
+        )}
+      </figcaption>
     </figure>
   );
 }
@@ -1010,6 +1023,17 @@ function PlayingScreen({
                     <p className="max-w-full rounded-full bg-spotle-navy px-5 py-3 text-spotle-coral">
                       {round.targetObject}
                     </p>
+                    {round.imageAttribution && (
+                      <p className="max-w-full text-xs leading-tight">
+                        Photo:{" "}
+                        <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
+                          {round.imageAttribution.author}, {round.imageAttribution.license}
+                        </a>{" "}
+                        <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
+                          license
+                        </a>
+                      </p>
+                    )}
                   </>
                 )}
               </div>
