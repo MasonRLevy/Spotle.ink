@@ -65,7 +65,7 @@ const arcadeButtonClass =
 const lobbyButtonClass =
   'w-full shrink-0 rounded-full border-4 border-spotle-cream bg-spotle-navy px-5 py-2.5 text-base text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:py-4 sm:text-xl';
 
-const taskbarHeightClass = 'h-[calc(8rem+var(--spotle-safe-area-bottom))]';
+const taskbarHeightClass = 'h-32';
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -1569,20 +1569,15 @@ function PlayerTile({
   );
 }
 
-function TargetBadgeCard({ round, inGrid = false }: { round: RoundData; inGrid?: boolean }) {
+function TargetBadge({ round }: { round: RoundData }) {
   const isPlayerHunt = round.mode === 'ME';
   const targetName = isPlayerHunt
     ? round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')
     : round.targetObject;
   return (
-    <div
-      className={`mx-auto flex flex-col items-center justify-center text-center text-spotle-coral ${
-        inGrid
-          ? 'h-full w-full rounded-xl bg-spotle-navy/90 px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.55)] sm:px-4'
-          : 'rounded-2xl bg-spotle-navy/90 px-3 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4'
-      }`}
-    >
-        <div className={`my-1 flex min-h-20 items-center justify-center sm:min-h-24 ${inGrid ? 'min-h-0 flex-1' : ''}`}>
+    <div className="pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]">
+      <div className="mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 px-3 py-3 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4">
+        <div className="my-1 flex min-h-20 items-center justify-center sm:min-h-24">
           {isPlayerHunt && round.targetPlayerSelfie ? (
             <img
               src={round.targetPlayerSelfie}
@@ -1590,11 +1585,7 @@ function TargetBadgeCard({ round, inGrid = false }: { round: RoundData; inGrid?:
               className="h-20 w-20 animate-pulse rounded-full object-cover shadow-[0_0_20px_rgba(220,38,38,0.8)] sm:h-24 sm:w-24"
             />
           ) : (
-            <EmojiDisplay
-              emoji={round.emoji}
-              name={targetName}
-              className={inGrid ? 'h-16 w-16 sm:h-28 sm:w-28' : undefined}
-            />
+            <EmojiDisplay emoji={round.emoji} name={targetName} />
           )}
         </div>
         <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-spotle-coral sm:text-xs">
@@ -1603,30 +1594,7 @@ function TargetBadgeCard({ round, inGrid = false }: { round: RoundData; inGrid?:
         <h2 className="mt-0.5 max-w-full break-words px-2 text-sm font-extrabold leading-snug text-white drop-shadow-sm sm:text-lg">
           {targetName}
         </h2>
-        {round.imageAttribution && (
-          <span className="mt-1 block text-[9px] leading-tight sm:text-xs">
-            Photo:{' '}
-            <a href={round.imageAttribution.sourceUrl} target="_blank" rel="noreferrer" className="underline">
-              {round.imageAttribution.author}, {round.imageAttribution.license}
-            </a>{' '}
-            <a href={round.imageAttribution.licenseUrl} target="_blank" rel="noreferrer" className="underline">
-              license
-            </a>
-          </span>
-        )}
-    </div>
-  );
-}
-
-function TargetBadge({ round, className }: { round: RoundData; className?: string }) {
-  return (
-    <div
-      className={
-        className ??
-        'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'
-      }
-    >
-      <TargetBadgeCard round={round} />
+      </div>
     </div>
   );
 }
@@ -1688,24 +1656,12 @@ function PlayingScreen({
   onFoundIt: () => void;
   onGiveUp: () => void;
 }) {
-  const hasTargetCell = players.length === 3;
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
       <div
-        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-8rem-var(--spotle-safe-area-bottom))] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
+        className={`absolute inset-x-0 top-0 grid h-[calc(100dvh-8rem)] min-h-0 gap-0 p-0 ${getGridClass(players.length)}`}
       >
-        {Array.from({ length: hasTargetCell ? maxPlayers : players.length }, (_, index) => {
-          if (hasTargetCell && index === maxPlayers - 1) {
-            return (
-              <div
-                key="target-cell"
-                className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-2 border-2 border-spotle-cream bg-spotle-cream p-3 text-center text-lg text-spotle-navy md:text-2xl"
-              >
-                {round && <TargetBadgeCard round={round} inGrid />}
-              </div>
-            );
-          }
-
+        {Array.from({ length: players.length }, (_, index) => {
           const player = players[index];
           if (!player) return null;
           const isLocal = player.id === localPlayerId;
@@ -1744,21 +1700,7 @@ function PlayingScreen({
         })}
       </div>
 
-      {round && players.length >= 4 && <TargetBadge round={round} />}
-
-      {round && players.length <= 2
-        && !refereeMessage
-        && !captureError
-        && !players.some((player) => player.status === 'VERIFYING') && (
-        <TargetBadge
-          round={round}
-          className={`pointer-events-none absolute z-50 w-24 max-w-full md:w-56 ${
-            players.length === 2
-              ? 'bottom-[calc(9rem+var(--spotle-safe-area-bottom))] left-1/2 -translate-x-1/2'
-              : 'right-4 top-4'
-          }`}
-        />
-      )}
+      {round && <TargetBadge round={round} />}
 
       <div className="pointer-events-none absolute inset-x-0 top-4 z-40 flex justify-center px-4">
         <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-3 py-2 text-center text-sm text-spotle-navy md:px-8 md:py-3 md:text-4xl">
@@ -1767,7 +1709,7 @@ function PlayingScreen({
       </div>
 
       {captureError && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[calc(8rem+var(--spotle-safe-area-bottom))] z-30 flex justify-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
           <p className="max-w-xl rounded-2xl border-4 border-spotle-cream bg-red-600 px-4 py-2 text-center text-base text-white">
             {captureError}
           </p>
@@ -1776,7 +1718,7 @@ function PlayingScreen({
 
       <nav
         aria-label="Game controls"
-        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 pb-[calc(1rem+var(--spotle-safe-area-bottom))] pt-2 text-spotle-navy sm:gap-6 sm:px-8`}
+        className={`fixed inset-x-0 bottom-0 z-30 grid ${taskbarHeightClass} grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t-4 border-spotle-navy bg-spotle-cream px-3 pb-4 pt-2 text-spotle-navy sm:gap-6 sm:px-8`}
       >
         <button
           type="button"

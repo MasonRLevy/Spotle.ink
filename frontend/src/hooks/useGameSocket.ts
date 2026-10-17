@@ -5,7 +5,6 @@
  * is authoritative: this hook never decides scores or whether a find counts.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
@@ -23,12 +22,11 @@ type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 /** Where the game server lives, as seen from the browser. */
 function serverUrl(): string | undefined {
-  const override = (import.meta.env.VITE_SERVER_URL as string | undefined)?.trim();
-  if (override) return override.replace(/\/+$/, '');
+  const override = import.meta.env.VITE_SERVER_URL as string | undefined;
+  if (override) return override;
   if (import.meta.env.DEV) {
     return `${window.location.protocol}//${window.location.hostname}:3001`;
   }
-  if (Capacitor.isNativePlatform()) return 'https://spotle.ink';
   return undefined; // same-origin
 }
 
