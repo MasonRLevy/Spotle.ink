@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Spotle</string>
+    <string name="title_activity_main">Spotle</string>
+    <string name="package_name">ink.spotle.app</string>
+    <string name="custom_url_scheme">ink.spotle.app</string>
+</resources>
