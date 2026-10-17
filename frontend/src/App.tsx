@@ -1,18 +1,35 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import confetti from 'canvas-confetti';
 import { Clock, Crown, SwitchCamera, X } from 'lucide-react';
 import spotleLogo from './assets/Spotle_Logo.png';
 import dogMouthClosed from './assets/Spot_mouth_closed.png';
 import dogMouthOpen from './assets/Spot_mouth_open.png';
+import inkRunning from './assets/Ink_running.gif';
+import inkPaw from './assets/Ink_paw.png';
+import xMarksTheSpot from './assets/X_marks_the_spot.png';
+import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
-import correctAudioSrc from './assets/sounds/CorrectImage.mp4';
-import wrongAudioSrc from './assets/sounds/WrongImage.mp4';
-import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp4';
+import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
+import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
+import flashAudioSrc from './assets/sounds/cameraFlash8Bit.wav';
 
 const maxPlayers = 4;
+const dogSpeed = 5;
+const pawPrintSpacing = 50;
+const maxPawPrints = 100;
+
+type LobbyPoint = { x: number; y: number };
+type PawPrint = LobbyPoint & { id: number; angle: number };
 
 const arcadeButtonClass =
   'w-full rounded-full border-4 border-spotle-cream bg-spotle-navy px-6 py-4 text-xl text-spotle-coral transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-50';
@@ -47,10 +64,20 @@ export default function App() {
   const [isTalking, setIsTalking] = useState(false);
   const [isMouthOpen, setIsMouthOpen] = useState(false);
   const [isRefereeFading, setIsRefereeFading] = useState(false);
+  const [targetPosition, setTargetPosition] = useState<LobbyPoint | null>(null);
+  const [showTreasureChest, setShowTreasureChest] = useState(true);
+  const [pawPrints, setPawPrints] = useState<PawPrint[]>([]);
 
   const flashAudio = useRef(new Audio(flashAudioSrc));
   const correctAudio = useRef(new Audio(correctAudioSrc));
   const wrongAudio = useRef(new Audio(wrongAudioSrc));
+  const lobbyRef = useRef<HTMLDivElement | null>(null);
+  const dogRef = useRef<HTMLImageElement | null>(null);
+  const dogPositionRef = useRef<LobbyPoint>({ x: 0, y: 0 });
+  const targetPositionRef = useRef<LobbyPoint | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const pawDistanceRef = useRef(0);
+  const dogPositionInitializedRef = useRef(false);
 
   const room = game.room;
   const me = room && game.playerId ? room.players[game.playerId] : undefined;
@@ -152,6 +179,39 @@ export default function App() {
     return () => window.clearInterval(intervalId);
   }, [isTalking, refereeMessage]);
 
+  useEffect(() => {
+    if (room?.status !== 'LOBBY') {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
+
+    const lobby = lobbyRef.current;
+    if (!lobby || dogPositionInitializedRef.current) return;
+
+    dogPositionRef.current = {
+      x: Math.min(100, lobby.clientWidth / 2),
+      y: Math.max(100, lobby.clientHeight - 120),
+    };
+    dogPositionInitializedRef.current = true;
+    if (dogRef.current) {
+      const { x, y } = dogPositionRef.current;
+      dogRef.current.style.transform =
+        `translate(-50%, -50%) translate(${x}px, ${y}px) scaleX(1)`;
+    }
+  }, [room?.status]);
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    },
+    [],
+  );
+
   // --- Celebrate only the first accepted find in a round.
   const lastCelebrated = useRef<string | null>(null);
   useEffect(() => {
@@ -238,6 +298,87 @@ export default function App() {
   function handleNextRound() {
     setSkippedPlayers([]);
     game.skip();
+  }
+
+  function handleLobbyClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!(event.target instanceof Element) || event.target.closest('[data-lobby-ui]')) return;
+
+    const lobby = lobbyRef.current;
+    if (!lobby) return;
+
+    const bounds = lobby.getBoundingClientRect();
+    const target = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+
+    if (!dogPositionInitializedRef.current) {
+      dogPositionRef.current = {
+        x: Math.min(100, lobby.clientWidth / 2),
+        y: Math.max(100, lobby.clientHeight - 120),
+      };
+      dogPositionInitializedRef.current = true;
+    }
+
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    targetPositionRef.current = target;
+    pawDistanceRef.current = 0;
+    setTargetPosition(target);
+    setShowTreasureChest(false);
+
+    const animateDog = () => {
+      const current = dogPositionRef.current;
+      const destination = targetPositionRef.current;
+      const dog = dogRef.current;
+      if (!destination || !dog) {
+        animationFrameRef.current = null;
+        return;
+      }
+
+      const dx = destination.x - current.x;
+      const dy = destination.y - current.y;
+      const distance = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+
+      if (distance < 5) {
+        dogPositionRef.current = destination;
+        dog.style.transform =
+          `translate(-50%, -50%) translate(${destination.x}px, ${destination.y}px) scaleX(${dx < 0 ? -1 : 1})`;
+        animationFrameRef.current = null;
+        setShowTreasureChest(true);
+        return;
+      }
+
+      const step = Math.min(dogSpeed, distance);
+      const next = {
+        x: current.x + (dx / distance) * step,
+        y: current.y + (dy / distance) * step,
+      };
+      dogPositionRef.current = next;
+      dog.style.transform =
+        `translate(-50%, -50%) translate(${next.x}px, ${next.y}px) scaleX(${dx < 0 ? -1 : 1})`;
+
+      pawDistanceRef.current += step;
+      while (pawDistanceRef.current >= pawPrintSpacing) {
+        pawDistanceRef.current -= pawPrintSpacing;
+        setPawPrints((prints) => [
+          ...prints,
+          {
+            id: performance.now(),
+            x: next.x,
+            y: next.y,
+            angle: (angle * 180) / Math.PI,
+          },
+        ].slice(-maxPawPrints));
+      }
+
+      animationFrameRef.current = window.requestAnimationFrame(animateDog);
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(animateDog);
   }
 
   function leaveGame() {
@@ -339,8 +480,64 @@ export default function App() {
   /* ------------------------------ LOBBY ------------------------------ */
   if (room!.status === 'LOBBY') {
     return (
-      <div className="min-h-screen bg-spotle-cream font-pixel text-spotle-navy">
-        <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
+      <div
+        ref={lobbyRef}
+        onClick={handleLobbyClick}
+        className="relative min-h-screen overflow-hidden bg-spotle-cream font-pixel text-spotle-navy"
+      >
+        {pawPrints.map((paw) => (
+          <img
+            key={paw.id}
+            src={inkPaw}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute z-0 h-8 w-8 select-none object-contain mix-blend-screen"
+            style={{
+              left: paw.x,
+              top: paw.y,
+              transform: `translate(-50%, -50%) rotate(${paw.angle}deg)`,
+            }}
+          />
+        ))}
+
+        {targetPosition && (
+          <>
+            <img
+              src={xMarksTheSpot}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 h-14 w-14 select-none object-contain mix-blend-screen md:h-16 md:w-16"
+              style={{
+                left: targetPosition.x,
+                top: targetPosition.y,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+            {showTreasureChest && (
+              <img
+                src={treasureChest}
+                alt=""
+                aria-hidden="true"
+                className="pointer-events-none absolute z-10 h-24 w-24 select-none object-contain mix-blend-screen md:h-32 md:w-32"
+                style={{
+                  left: targetPosition.x,
+                  top: targetPosition.y,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              />
+            )}
+          </>
+        )}
+
+        <img
+          ref={dogRef}
+          src={inkRunning}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 z-10 h-32 w-24 select-none object-contain mix-blend-screen"
+        />
+
+        <main data-lobby-ui className="relative z-20 mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-8 p-6 text-center">
           <div className="flex min-h-[calc(100dvh-3rem)] w-[min(90vw,28rem)] shrink-0 flex-col items-center justify-center gap-6 py-6">
             <p className="rounded-full border-4 border-spotle-cream bg-spotle-navy px-8 py-4 text-2xl text-spotle-coral">
               PIN: {room!.roomCode}
@@ -391,14 +588,14 @@ export default function App() {
                 type="button"
                 onClick={game.startGame}
                 disabled={players.length < 1}
-                className={arcadeButtonClass}
+                className={`${arcadeButtonClass} relative z-50`}
               >
                 START GAME
               </button>
             ) : (
               <p className="text-xl">Waiting for the host to start…</p>
             )}
-            <button type="button" onClick={leaveGame} className={arcadeButtonClass}>
+            <button type="button" onClick={leaveGame} className={`${arcadeButtonClass} relative z-50`}>
               Leave
             </button>
           </div>
@@ -532,9 +729,7 @@ function PlayerTile({
   return (
     <section
       className={`relative min-h-0 min-w-0 overflow-hidden border-2 border-spotle-cream bg-spotle-navy ${
-        showCrown
-          ? 'z-10 border-[12px] border-green-500 shadow-[0_0_28px_#4ade80,inset_0_0_18px_#4ade80]'
-          : ''
+        showCrown ? 'z-[5]' : ''
       }`}
       aria-label={`${player.name} video feed`}
     >
@@ -555,6 +750,13 @@ function PlayerTile({
         />
       ) : null}
 
+      {showCrown && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 border-[12px] border-green-500 shadow-[inset_0_0_28px_#4ade80]"
+        />
+      )}
+
       {isFlashing && (
         <div className="pointer-events-none absolute inset-0 z-[1] animate-flash" />
       )}
@@ -570,7 +772,7 @@ function PlayerTile({
         </div>
       )}
 
-      <p className={`absolute top-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
+      <p className={`absolute top-2 z-20 max-w-[calc(100%-1rem)] truncate rounded-full border-2 border-spotle-cream bg-spotle-coral px-4 py-2 text-xl text-spotle-navy md:text-2xl ${
         nameOnRight ? 'right-2 text-right' : 'left-2 text-left'
       }`}>
         {isLocal ? 'You' : player.name}
@@ -579,12 +781,12 @@ function PlayerTile({
       {showCrown && (
         <Crown
           aria-label="Round winner"
-          className="absolute left-1/2 top-1/2 z-10 h-16 w-16 -translate-x-1/2 -translate-y-1/2 fill-yellow-300 text-yellow-300 drop-shadow-[0_0_16px_#fde047] md:h-24 md:w-24"
+          className="absolute left-1/2 top-1/2 z-20 h-16 w-16 -translate-x-1/2 -translate-y-1/2 fill-yellow-300 text-yellow-300 drop-shadow-[0_0_16px_#fde047] md:h-24 md:w-24"
         />
       )}
 
       {player.reactionMs !== undefined && !refereeMessage && (
-        <p className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border-2 border-spotle-cream bg-spotle-coral px-5 py-3 text-lg text-spotle-navy md:text-2xl">
+        <p className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border-2 border-spotle-cream bg-spotle-coral px-5 py-3 text-lg text-spotle-navy md:text-2xl">
           {(player.reactionMs / 1000).toFixed(1)}s
         </p>
       )}
