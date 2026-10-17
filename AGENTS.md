@@ -66,6 +66,14 @@ Camera needs `localhost` or HTTPS; for phones use `ngrok http 5173`.
 `frontend/src/lobby_controller.ts`, `game_controller.ts`, `test.tsx` (empty), `data/items.json` (placeholder images), `server_test_index.html`. All recoverable from git history.
 `frontend/src/components/VideoGrid.tsx` is **unused** — the styled grid in `App.tsx` replaced it.
 
+### Deployment
+* **Single origin.** The server serves `frontend/dist`, so the game is one process on one port. There is no separate frontend service to deploy.
+* `render.yaml` (repo root) is a Render Blueprint: New -> Blueprint -> pick the repo, then set `GEMINI_API_KEY` in the Environment tab. Pushes to `main` auto-deploy.
+* **Build gotchas already handled:** `tsx` is a real dependency (Render skips devDependencies in production), and the frontend install uses `--include=dev` because Vite/TypeScript live there.
+* Production run locally: `npm run build --prefix frontend && NODE_ENV=production npm start --prefix server`.
+* Free tier sleeps after 15 min (~1 min cold start) and rooms are in memory, so **never redeploy during a demo** and wake the site first.
+* Custom domain: add it in Render, then put the A (root) + CNAME (www) records Render shows into GoDaddy DNS. Remove any AAAA record.
+
 ### Current Focus
 Game is playable end to end. Next up: sound effects, the UF/SwampHacks theme pack, and a global leaderboard.
 

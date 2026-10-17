@@ -66,6 +66,55 @@ backend/              DEPRECATED — see backend/DEPRECATED.md
 
 The client is never trusted — it only sends a photo. The server decides.
 
+## Deploying
+
+The server serves the built frontend, so the whole game is **one process on one
+port** — one service to deploy, one URL, and Socket.io connects same-origin.
+
+Run the production build locally exactly as the host does:
+
+```bash
+npm install --prefix frontend --include=dev
+npm run build --prefix frontend
+NODE_ENV=production PORT=3001 npm start --prefix server
+```
+
+Then everything is on http://localhost:3001 — game, API, sockets, and the
+referee workbench at `/referee`.
+
+### Render (free tier)
+
+`render.yaml` in the repo root is a Blueprint. In Render: **New → Blueprint →
+pick this repo**, then set `GEMINI_API_KEY` in the service's Environment tab.
+Pushes to `main` redeploy automatically.
+
+Two things the free tier does that will bite you if you forget:
+
+- **It sleeps after 15 minutes of inactivity** and takes ~1 minute to wake.
+  Load the site a few minutes before any demo, or point an uptime pinger at
+  `/api/health`.
+- **Rooms live in memory**, so a redeploy or a sleep ends any game in progress.
+  Don't push during a demo.
+
+### Pointing spotle.ink at it
+
+1. Deploy first and confirm the `*.onrender.com` URL works.
+2. In Render: **Settings → Custom Domains → Add** `spotle.ink`. Render pairs
+   the root and `www` automatically and issues TLS free.
+3. Render then shows you the exact DNS records to create. In GoDaddy, go to
+   **My Products → Domain → DNS → Manage Zones** and add them:
+   - an **A** record for the root (`@`) pointing at the IP Render gives you,
+   - a **CNAME** for `www` pointing at your `*.onrender.com` hostname.
+4. Delete any **AAAA** record on the domain — Render is IPv4 only and a
+   stale AAAA will break resolution.
+5. Do **not** use GoDaddy's "Domain Forwarding" — that bounces visitors to a
+   different URL instead of serving your site at `spotle.ink`.
+
+DNS usually propagates in minutes, but allow a few hours. Set it up early.
+
+> GoDaddy sells the *name*; it does not run the code. Render runs the code.
+> Those are two separate things, and both are needed.
+
 ## Testing
 
 ```bash

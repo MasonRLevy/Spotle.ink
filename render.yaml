@@ -1,0 +1,37 @@
+# Render blueprint for Spotle.online
+#
+# One web service: the Node server builds and then serves BOTH the game API
+# (Socket.io) and the built React frontend, so there is a single origin and a
+# single URL. See README.md -> Deploying.
+#
+# Setup: Render dashboard -> New -> Blueprint -> pick this repo.
+# Then set GEMINI_API_KEY in the service's Environment tab (never commit it).
+
+services:
+  - type: web
+    name: spotle
+    runtime: node
+    plan: free
+    # Build notes:
+    #  - Render sets NODE_ENV=production, which makes `npm install` skip
+    #    devDependencies. Vite, TypeScript and the React plugin are all
+    #    devDependencies of frontend/, so that install needs --include=dev
+    #    or the build fails with "vite: not found".
+    #  - The server runs through tsx, which is a real dependency for exactly
+    #    the same reason.
+    buildCommand: >-
+      npm install --prefix server &&
+      npm install --prefix frontend --include=dev &&
+      npm run build --prefix frontend
+    startCommand: npm start --prefix server
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Set this in the Render dashboard - sync:false keeps it out of git.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "22"
+      # Optional: pin the round target for a reproducible demo.
+      # - key: SPOTLE_FORCE_TARGET
+      #   value: hammer

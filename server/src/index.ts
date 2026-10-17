@@ -8,6 +8,7 @@
  *
  * One process serves: REST, Socket.io game traffic, and the referee.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
@@ -72,6 +73,35 @@ app.get('/api/health', (_req, res) => {
 
 // Role 4's standalone referee endpoints stay mounted for testing.
 app.use(refereeRouter);
+
+// Referee workbench (object pool browser + vision tester) at /referee.
+app.use('/referee', express.static(path.join(serverRoot, 'gemini-referee', 'public')));
+
+/* ---------------------- Built frontend ------------------------ */
+// In production this process serves the UI too, so the whole game is ONE
+// origin on ONE port: no proxy, no CORS, no second service to deploy, and
+// Socket.io connects same-origin. Run `npm run build --prefix frontend`.
+const clientDist = path.join(repoRoot, 'frontend', 'dist');
+const clientIndex = path.join(clientDist, 'index.html');
+const hasClient = fs.existsSync(clientIndex);
+
+if (hasClient) {
+  app.use(express.static(clientDist));
+}
+
+// SPA fallback: any GET that is not an API/socket/workbench route returns
+// index.html so client-side routing and deep links work.
+app.use((req, res, next) => {
+  if (!hasClient || req.method !== 'GET') return next();
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/socket.io') ||
+    req.path.startsWith('/referee')
+  ) {
+    return next();
+  }
+  return res.sendFile(clientIndex);
+});
 
 /* -------------------------- Socket.io -------------------------- */
 
@@ -145,9 +175,14 @@ io.on('connection', (socket) => {
 httpServer.listen(PORT, async () => {
   console.log('');
   console.log('  Spotle.online - universal server');
-  console.log(`  API + Socket.io : http://localhost:${PORT}`);
-  console.log(`  Referee bench   : http://localhost:${PORT}/  (object pool + vision test)`);
+  console.log(`  Game + API      : http://localhost:${PORT}`);
+  console.log(`  Referee bench   : http://localhost:${PORT}/referee`);
   console.log(`  Objects loaded  : ${getAllObjects().length}`);
+  console.log(
+    hasClient
+      ? '  Frontend        : serving frontend/dist (single origin)'
+      : '  Frontend        : not built - run `npm run build --prefix frontend`, or use the Vite dev server on :5173',
+  );
   console.log('');
 
   const health = await checkGeminiApiKey();
