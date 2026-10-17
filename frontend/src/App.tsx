@@ -6,6 +6,7 @@ import dogMouthClosed from './assets/Spot_mouth_closed.png';
 import dogMouthOpen from './assets/Spot_mouth_open.png';
 import { useGameSocket } from './hooks/useGameSocket';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
+import { PixelCamTile } from './components/PixelCamTile';
 import type { Player, RoundData } from '@shared/game';
 
 const maxPlayers = 4;
@@ -324,11 +325,29 @@ export default function App() {
                 return (
                   <li
                     key={player?.id ?? `empty-${index}`}
-                    className="flex aspect-square min-h-0 min-w-0 w-full items-center justify-center break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy p-3 text-center text-lg text-spotle-coral"
+                    className="aspect-square min-h-0 min-w-0 w-full overflow-hidden break-words rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy text-center text-lg text-spotle-coral"
                   >
-                    {player
-                      ? `${player.name}${player.isHost ? ' (Host)' : ''}`
-                      : 'Waiting for player'}
+                    {player ? (
+                      <PixelCamTile
+                        stream={
+                          player.id === game.playerId
+                            ? webrtc.localStream
+                            : webrtc.remoteMedia[player.peerId]?.stream
+                              ?? Object.values(webrtc.remoteMedia).find(
+                                (m) => m.playerId === player.id,
+                              )?.stream
+                        }
+                        label={`${player.name}${player.isHost ? ' (Host)' : ''}`}
+                        mirrored={player.id === game.playerId && webrtc.facingMode === 'user'}
+                        placeholder={
+                          player.id === game.playerId ? 'Starting camera…' : 'Connecting…'
+                        }
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center p-3">
+                        Waiting for player
+                      </div>
+                    )}
                   </li>
                 );
               })}
