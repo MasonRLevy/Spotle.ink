@@ -6,6 +6,7 @@
  * `RoomState` from the Node `roomManager.js`.
  */
 import type { GameMode, Player, RoomState, RoomStatus, ThemeType } from '../../shared/game.js';
+import { isPlayerHuntMode } from '../../shared/game.js';
 
 const rooms = new Map<string, RoomState>();
 
@@ -116,7 +117,7 @@ export function setStatus(room: RoomState, status: RoomStatus): void {
 
 export function setMode(room: RoomState, mode: GameMode): void {
   room.settings.mode = mode;
-  if (mode === 'ME') room.settings.theme = null;
+  if (isPlayerHuntMode(mode)) room.settings.theme = null;
 }
 
 export function setTheme(room: RoomState, theme: ThemeType | null): void {

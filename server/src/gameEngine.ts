@@ -11,6 +11,7 @@ import type {
   VerificationResponse,
 } from '../../shared/game.js';
 import { pointsForPlacement } from '../../shared/game.js';
+import { isPlayerHuntMode } from '../../shared/game.js';
 import { verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
 import { MASTER_ITEM_DATABASE, pickThemeTarget } from './data/itemRegistry.js';
 import { resetForNewGame, serializeRoom } from './rooms.js';
@@ -54,7 +55,7 @@ export function assignTargets(players: Player[]): Map<string, Player> {
 
 function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: string, base: RoundData): RoundData {
   const player = room.players[playerId];
-  if (room.settings.mode !== 'ME' || !player?.targetPlayerId) {
+  if (!isPlayerHuntMode(room.settings.mode) || !player?.targetPlayerId) {
     return { ...base, mode: 'OBJECTS' };
   }
 
@@ -62,7 +63,7 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
   if (!target) {
     return {
       ...base,
-      mode: 'ME',
+      mode: room.settings.mode,
       targetObject: 'Hunt the target player!',
       difficulty: 'MEDIUM',
       targetPlayerId: player.targetPlayerId,
@@ -71,7 +72,7 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
 
   return {
     ...base,
-    mode: 'ME',
+    mode: room.settings.mode,
     roundNumber,
     targetObject: `Hunt ${target.name}!`,
     difficulty: 'MEDIUM',
@@ -81,7 +82,7 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
 }
 
 export function maybeStartMeRound(io: GameServer, room: RoomState): boolean {
-  if (room.settings.mode !== 'ME' || room.status !== 'SELFIE_REGISTRATION') return false;
+  if (!isPlayerHuntMode(room.settings.mode) || room.status !== 'SELFIE_REGISTRATION') return false;
   const players = Object.values(room.players);
   if (players.length === 0 || players.some((player) => !player.selfieBase64)) return false;
 
@@ -95,7 +96,7 @@ export function startGame(io: GameServer, room: RoomState): void {
   clearTimers(room.roomCode);
   resetForNewGame(room);
 
-  if (room.settings.mode === 'ME') {
+  if (isPlayerHuntMode(room.settings.mode)) {
     if (Object.keys(room.players).length < 2) {
       io.to(room.roomCode).emit('game:error', { message: 'Player Hunt needs at least two players.' });
       return;
@@ -118,7 +119,7 @@ export function startGame(io: GameServer, room: RoomState): void {
 }
 
 export function beginRound(io: GameServer, room: RoomState, roundNumber: number): void {
-  if (room.settings.mode === 'ME') {
+  if (isPlayerHuntMode(room.settings.mode)) {
     const targets = assignTargets(Object.values(room.players));
     for (const player of Object.values(room.players)) {
       player.status = 'SEARCHING';
@@ -129,7 +130,7 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
 
     const baseRound: RoundData = {
       roundNumber,
-      mode: 'ME',
+      mode: room.settings.mode,
       targetObject: 'Hunt the target player!',
       difficulty: 'MEDIUM',
       startTime: Date.now(),
@@ -226,7 +227,7 @@ export async function handleAttempt(
 
   let verdict: VerificationResponse;
   try {
-    if (room.settings.mode === 'ME') {
+    if (isPlayerHuntMode(room.settings.mode)) {
       const targetPlayer = player.targetPlayerId ? room.players[player.targetPlayerId] : undefined;
       if (!targetPlayer?.selfieBase64) {
         player.status = 'SEARCHING';

@@ -14,7 +14,10 @@ export type RoomStatus =
   | 'ROUND_RESULT'
   | 'GAME_OVER';
 
-export type GameMode = 'OBJECTS' | 'ME';
+export type GameMode = 'OBJECTS' | 'ME' | 'HIDE_N_SEEK';
+export function isPlayerHuntMode(mode: GameMode): boolean {
+  return mode === 'ME' || mode === 'HIDE_N_SEEK';
+}
 export type ThemeType = 'UF_SWAMP' | 'HACKATHON' | 'GENERAL' | 'OUTDOORS';
 
 /**

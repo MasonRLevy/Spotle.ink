@@ -21,6 +21,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '../../shared/game.js';
+import { isPlayerHuntMode } from '../../shared/game.js';
 import {
   createRoom,
   getRoom,
@@ -188,7 +189,7 @@ io.on('connection', (socket) => {
   socket.on('SUBMIT_SELFIE', ({ selfieBase64 }) => {
     const room = pin ? getRoom(pin) : undefined;
     const player = room?.players[socket.id];
-    if (!room || !player || room.status !== 'SELFIE_REGISTRATION' || room.settings.mode !== 'ME') return;
+    if (!room || !player || room.status !== 'SELFIE_REGISTRATION' || !isPlayerHuntMode(room.settings.mode)) return;
     if (!/^data:image\/(jpeg|png|webp);base64,/.test(selfieBase64) || selfieBase64.length > 4_000_000) {
       socket.emit('game:error', { message: 'That selfie could not be accepted. Capture a new frame.' });
       return;

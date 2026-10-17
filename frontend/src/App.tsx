@@ -37,7 +37,7 @@ import { LobbyCamTile } from './components/LobbyCamTile';
 import { EmojiDisplay } from './components/EmojiDisplay';
 import { ThemePicker } from './components/ThemePicker';
 import type { GameMode, Player, RoundData } from '@shared/game';
-import { getTheme } from '@shared/game';
+import { getTheme, isPlayerHuntMode } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
@@ -307,6 +307,7 @@ useEffect(() => {
         window.clearTimeout(settleTimerRef.current);
         settleTimerRef.current = null;
       }
+      setIsMoving(false);
       return;
     }
 
@@ -769,7 +770,7 @@ useEffect(() => {
     startDogMovement(target);
   }
 
-  function renderInkMiniGame() {
+  function renderInkMiniGame(includeDog = true) {
     return (
       <>
         {routeMarkers.map((marker) => (
@@ -842,6 +843,13 @@ useEffect(() => {
           />
         )}
 
+        {includeDog && renderInkDog()}
+      </>
+    );
+  }
+
+  function renderInkDog() {
+    return (
         <div
           ref={dogRef}
           aria-hidden="true"
@@ -863,7 +871,6 @@ useEffect(() => {
             className={`absolute left-1/2 top-1/2 h-[104px] w-[104px] -translate-x-1/2 -translate-y-1/2 select-none object-contain mix-blend-multiply transition-opacity duration-200 ${isMoving ? 'opacity-0' : 'opacity-100'}`}
           />
         </div>
-      </>
     );
   }
 
@@ -904,7 +911,10 @@ useEffect(() => {
             onLoad={initializeDogNearHouse}
             className="absolute left-1/2 top-3 z-10 h-auto w-72 -translate-x-1/2 select-none object-contain mix-blend-multiply md:hidden"
           />
-          {renderInkMiniGame()}
+          {renderInkMiniGame(false)}
+        </div>
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60]">
+          {renderInkDog()}
         </div>
         <main data-lobby-ui className="relative z-50 mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col items-center justify-center gap-3 px-4 py-2 pt-36 text-center sm:gap-8 sm:p-6 sm:pt-6">
           <section className="flex w-full flex-col items-center gap-3 sm:gap-6" aria-live="polite">
@@ -1186,7 +1196,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={game.startGame}
-                disabled={players.length < (room!.settings.mode === 'ME' ? 2 : 1)}
+                disabled={players.length < (isPlayerHuntMode(room!.settings.mode) ? 2 : 1)}
                 className={`${lobbyButtonClass} relative z-50`}
               >
                 START GAME
@@ -1194,29 +1204,29 @@ useEffect(() => {
             ) : (
               <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
-            <div className="grid w-full grid-cols-2 gap-2">
-              {(['OBJECTS', 'ME'] as GameMode[]).map((mode) => (
+            <div className="grid w-full grid-cols-3 gap-1 sm:gap-2">
+              {(['OBJECTS', 'ME', 'HIDE_N_SEEK'] as GameMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => game.setMode(mode)}
-                  disabled={!isHost || room!.settings.mode === mode}
+                  disabled={!isHost}
                   aria-pressed={room!.settings.mode === mode}
-                  className={`${lobbyButtonClass} ${room!.settings.mode === mode ? 'bg-spotle-coral text-spotle-navy' : ''} relative z-50`}
+                  className={`${lobbyButtonClass} px-1 text-xs sm:px-3 sm:text-base ${room!.settings.mode === mode ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100' : ''} relative z-50`}
                 >
-                  {mode === 'OBJECTS' ? 'OBJECT HUNT' : 'ME HUNT'}
+                  {mode === 'OBJECTS' ? 'CLASSIC' : mode === 'ME' ? 'ASSASSIN' : 'HIDE N SEEK'}
                 </button>
               ))}
             </div>
             <button
               type="button"
               onClick={() => setIsThemeModalOpen(true)}
-              disabled={room!.settings.mode === 'ME'}
+              disabled={isPlayerHuntMode(room!.settings.mode)}
               className={`${lobbyButtonClass} relative z-50`}
             >
-              {room!.settings.mode === 'ME' ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
+              {isPlayerHuntMode(room!.settings.mode) ? 'Player Hunt' : getTheme(room!.settings.theme)?.name ?? 'Themes'}
             </button>
-            {room!.settings.mode === 'ME' && (
+            {isPlayerHuntMode(room!.settings.mode) && (
               <p className="shrink-0 text-sm text-spotle-navy/70">
                 Players will hunt each other! Selfies are required before the round starts.
               </p>
@@ -1234,6 +1244,9 @@ useEffect(() => {
             )}
           </div>
         </main>
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[60]">
+          {renderInkDog()}
+        </div>
       </div>
     );
   }
@@ -1556,13 +1569,18 @@ function PlayerTile({
   );
 }
 
-function TargetBadge({ round }: { round: RoundData }) {
-  const isPlayerHunt = round.mode === 'ME';
+function TargetBadge({ round, playerCount }: { round: RoundData; playerCount: number }) {
+  const isPlayerHunt = isPlayerHuntMode(round.mode);
   const targetName = isPlayerHunt
     ? round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')
     : round.targetObject;
+  const positionClass = playerCount === 1
+    ? 'right-4 top-4'
+    : playerCount === 2
+      ? 'bottom-[9rem] left-1/2 -translate-x-1/2'
+      : 'left-1/2 top-[calc((100dvh-8rem)/2)] -translate-x-1/2 -translate-y-1/2';
   return (
-    <div className="pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]">
+    <div className={`pointer-events-none absolute z-50 w-[min(80vw,13rem)] select-none sm:w-[min(34vw,15rem)] ${positionClass}`}>
       <div className="mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 px-3 py-3 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4">
         <div className="my-1 flex min-h-20 items-center justify-center sm:min-h-24">
           {isPlayerHunt && round.targetPlayerSelfie ? (
@@ -1687,7 +1705,7 @@ function PlayingScreen({
         })}
       </div>
 
-      {round && <TargetBadge round={round} />}
+      {round && <TargetBadge round={round} playerCount={players.length} />}
 
       <div className="pointer-events-none absolute inset-x-0 top-4 z-40 flex justify-center px-4">
         <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-3 py-2 text-center text-sm text-spotle-navy md:px-8 md:py-3 md:text-4xl">
