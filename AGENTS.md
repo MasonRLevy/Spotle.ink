@@ -21,6 +21,6 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** [Insert Date/Time]
-* **Latest Action:** Initial repository setup, `AGENTS.md` creation, and defining shared `game.ts` data contracts.
-* **Current Focus:** Role 4 is building the isolated `geminiReferee.ts` backend service to test vision validation.
+* **Last Updated:** 2026-10-17
+* **Latest Action:** Role 2 hardened the WebRTC camera startup path by guarding unsupported browsers and preventing undefined `getUserMedia` errors before the camera is requested; frontend build validation passed.
+* **Current Focus:** Role 2 is finishing camera reliability, video-grid stability, and JPEG capture flow while Roles 3 and 4 continue room state and Gemini verification work.
