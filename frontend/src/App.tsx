@@ -1865,19 +1865,19 @@ function PlayingScreen({
             />
           );
         })}
+        {round && !isHideAndSeek && players.length === 4 && (
+          <TargetBadge
+            round={round}
+            className="pointer-events-none absolute left-1/2 top-1/2 z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
+          />
+        )}
       </div>
 
-      {round && !isHideAndSeek && players.length === 4 && (
-        <TargetBadge
-          round={round}
-          className="pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem-var(--spotle-safe-area-bottom))/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
-        />
-      )}
       {round && !isHideAndSeek && players.length === 3 && (
         <TargetBadge
           round={round}
           className="pointer-events-none absolute right-4 z-50 w-24 max-w-full md:w-56"
-          style={{ bottom: 'calc(9rem + var(--spotle-safe-area-bottom))' }}
+          style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom, 0px))' }}
         />
       )}
       {round && !isHideAndSeek && players.length <= 2
@@ -1891,7 +1891,7 @@ function PlayingScreen({
           }`}
           style={
             players.length === 2
-              ? { bottom: 'calc(9rem + var(--spotle-safe-area-bottom))' }
+              ? { bottom: 'calc(9rem + env(safe-area-inset-bottom, 0px))' }
               : undefined
           }
         />
