@@ -16,7 +16,6 @@ export type RoomStatus =
 
 export type GameMode = 'OBJECTS' | 'ME';
 export type ThemeType = 'UF_SWAMP' | 'HACKATHON' | 'GENERAL' | 'OUTDOORS';
-export type VisualType = 'emoji' | 'lucide' | 'image';
 
 /**
  * Legacy/theme compatibility buffer for older clients while the new theme set
@@ -63,9 +62,7 @@ export interface ScavengerItem {
   name: string;
   themes: ThemeType[];
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
-  hint: string;
-  visualType: VisualType;
-  visualValue: string;
+  emoji: string;
   aliases: string[];
   cheatRisks: string[];
 }
@@ -98,18 +95,14 @@ export interface RoundData {
   mode: GameMode;
   targetId?: string;
   targetObject: string;
-  hint: string;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
-  visualType?: VisualType;
-  visualValue?: string;
+  emoji?: string;
   targetPlayerId?: string;
   targetPlayerSelfie?: string;
   startTime: number;
   finishers: string[];
   winnerId?: string;
   refereeCommentary?: string;
-  /** legacy flat-SVG target image used by the older UI */
-  targetIconUrl?: string;
   imageAttribution?: ImageAttribution;
 }
 
@@ -117,10 +110,8 @@ export interface RoundStartPayload {
   roundNumber: number;
   mode: GameMode;
   targetObject: string;
-  hint: string;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
-  visualType?: VisualType;
-  visualValue?: string;
+  emoji?: string;
   targetPlayerId?: string;
   targetPlayerSelfie?: string;
   startTime: number;

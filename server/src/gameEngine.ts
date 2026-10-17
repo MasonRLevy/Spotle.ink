@@ -64,7 +64,6 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
       ...base,
       mode: 'ME',
       targetObject: 'Hunt the target player!',
-      hint: 'Track down the assigned player.',
       difficulty: 'MEDIUM',
       targetPlayerId: player.targetPlayerId,
     };
@@ -75,12 +74,9 @@ function buildRoundForPlayer(room: RoomState, roundNumber: number, playerId: str
     mode: 'ME',
     roundNumber,
     targetObject: `Hunt ${target.name}!`,
-    hint: `Find ${target.name} and photograph them.`,
     difficulty: 'MEDIUM',
     targetPlayerId: target.id,
     targetPlayerSelfie: target.selfieBase64,
-    visualType: 'image',
-    visualValue: target.selfieBase64,
   };
 }
 
@@ -135,7 +131,6 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
       roundNumber,
       mode: 'ME',
       targetObject: 'Hunt the target player!',
-      hint: 'Track down the assigned player and snap a clear picture.',
       difficulty: 'MEDIUM',
       startTime: Date.now(),
       finishers: [],
@@ -180,9 +175,7 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
     mode: 'OBJECTS',
     targetId: pick.id,
     targetObject: pick.name,
-    visualType: pick.visualType,
-    visualValue: pick.visualValue,
-    hint: pick.hint,
+    emoji: pick.emoji,
     difficulty: pick.difficulty,
     startTime: Date.now(),
     finishers: [],

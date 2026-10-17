@@ -53,12 +53,24 @@ function stopStream(stream: MediaStream | null) {
  */
 export function useWebRTC(options: {
   enabled: boolean;
+  /**
+   * Master voice-chat switch (Settings -> Voice chat). When false the local
+   * mic is muted AND remote audio is silenced - you neither speak nor hear.
+   */
+  voiceEnabled?: boolean;
   localName: string;
   localPlayerId: string;
   remotePeers: RemotePeer[];
   onLocalPeerId?: (peerId: string) => void;
 }) {
-  const { enabled, localName, localPlayerId, remotePeers, onLocalPeerId } = options;
+  const {
+    enabled,
+    voiceEnabled = true,
+    localName,
+    localPlayerId,
+    remotePeers,
+    onLocalPeerId,
+  } = options;
 
   const [localPeerId, setLocalPeerId] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -408,17 +420,37 @@ export function useWebRTC(options: {
   }, [attachLocalVideo, isFlipping, replaceVideoTrackOnCalls]);
 
   /**
-   * Mute/unmute by flipping track.enabled rather than stopping the track.
-   * Stopping would force a renegotiation and the peer would have to re-accept;
-   * `enabled` just stops sending samples and resumes instantly.
+   * Flips the user's mic preference. It does not touch tracks directly - the
+   * effects below are the single writer, so the preference and the master
+   * voice switch can never fight over track.enabled.
    */
   const toggleMic = useCallback(() => {
-    const tracks = streamRef.current?.getAudioTracks() ?? [];
-    if (tracks.length === 0) return;
-    const next = !tracks[0]!.enabled;
-    for (const track of tracks) track.enabled = next;
-    setMicEnabled(next);
+    setMicEnabled((on) => !on);
   }, []);
+
+  /**
+   * Whether the mic is actually transmitting. Turning voice chat off mutes
+   * you regardless of your own mic preference, and turning it back on
+   * restores whatever you had chosen.
+   */
+  const micActive = voiceEnabled && micEnabled;
+
+  // Outgoing audio. Mute by flipping `enabled` rather than stopping the
+  // track: stopping forces a renegotiation the peer must re-accept, while
+  // `enabled` stops sending samples and resumes instantly.
+  useEffect(() => {
+    const tracks = streamRef.current?.getAudioTracks() ?? [];
+    for (const track of tracks) track.enabled = micActive;
+  }, [micActive, localStream]);
+
+  // Incoming audio: silenced whenever voice chat is switched off.
+  useEffect(() => {
+    for (const media of Object.values(remoteMedia)) {
+      for (const track of media.stream.getAudioTracks()) {
+        track.enabled = voiceEnabled;
+      }
+    }
+  }, [voiceEnabled, remoteMedia]);
 
   const captureJpeg = useCallback((options: CaptureFrameOptions = {}) => {
     const video = localVideoEl.current;
@@ -438,6 +470,7 @@ export function useWebRTC(options: {
     isFlipping,
     cameraReady: Boolean(localStream),
     micEnabled,
+    micActive,
     micAvailable,
     toggleMic,
     flipCamera,
