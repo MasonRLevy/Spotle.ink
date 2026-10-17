@@ -1305,7 +1305,11 @@ useEffect(() => {
                       onClick={() => game.setHidingDuration(durationSec)}
                       disabled={!isHost || room!.settings.hidingDurationSec === durationSec}
                       aria-pressed={room!.settings.hidingDurationSec === durationSec}
-                      className={`${lobbyButtonClass} ${room!.settings.hidingDurationSec === durationSec ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100' : ''}`}
+                      className={`${modeButtonBaseClass} ${
+                        room!.settings.hidingDurationSec === durationSec
+                          ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100'
+                          : 'bg-spotle-navy text-spotle-coral disabled:opacity-50'
+                      }`}
                     >
                       {durationSec}s
                     </button>
