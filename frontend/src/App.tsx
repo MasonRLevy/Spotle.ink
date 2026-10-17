@@ -37,8 +37,8 @@ import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
 import { EmojiDisplay } from './components/EmojiDisplay';
 import { ThemePicker } from './components/ThemePicker';
-import type { GameMode, Player, RoundData } from '@shared/game';
-import { getTheme, isPlayerHuntMode } from '@shared/game';
+import type { GameMode, HideAndSeekTarget, Player, PlayerRole, RoundData } from '@shared/game';
+import { getTheme, isHideAndSeekMode, isPlayerHuntMode } from '@shared/game';
 import correctAudioSrc from './assets/sounds/CorrectImage.mp3';
 import wrongAudioSrc from './assets/sounds/WrongImage.mp3';
 import flashAudioSrc from './assets/sounds/cameraFlash8Bit.mp3';
@@ -99,6 +99,8 @@ export default function App() {
   const [flashing, setFlashing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [hidingSecondsRemaining, setHidingSecondsRemaining] = useState(0);
+  const [selectedHiderId, setSelectedHiderId] = useState<string | null>(null);
   const [skippedPlayers, setSkippedPlayers] = useState<string[]>([]);
   const [refereeMessage, setRefereeMessage] = useState<string | null>(null);
   const [refereePlayerId, setRefereePlayerId] = useState<string | null>(null);
@@ -215,6 +217,23 @@ useEffect(() => {
     onLocalPeerId: game.registerPeerId,
     voiceEnabled: !voiceChatMuted,
   });
+
+  useEffect(() => {
+    webrtc.setVideoEnabled(room?.status !== 'HIDING_PHASE');
+  }, [room?.status, webrtc.setVideoEnabled]);
+
+  useEffect(() => {
+    if (room?.status !== 'HIDING_PHASE' || !room.hidingEndsAt) {
+      setHidingSecondsRemaining(0);
+      return;
+    }
+    const updateRemaining = () => {
+      setHidingSecondsRemaining(Math.max(0, Math.ceil((room.hidingEndsAt! - Date.now()) / 1000)));
+    };
+    updateRemaining();
+    const interval = window.setInterval(updateRemaining, 250);
+    return () => window.clearInterval(interval);
+  }, [room?.status, room?.hidingEndsAt]);
 
   useEffect(() => {
     const muted = soundEffectsMuted;
@@ -1234,16 +1253,22 @@ useEffect(() => {
             ) : (
               <p className="shrink-0 text-base sm:text-xl">Waiting for the host to start…</p>
             )}
-            <div className="grid w-full grid-cols-3 gap-1 sm:gap-2">
-              {(['OBJECTS', 'ME', 'HIDE_N_SEEK'] as GameMode[]).map((mode) => (
+            <div className="grid w-full grid-cols-3 gap-2">
+              {(['OBJECTS', 'ME', 'HIDE_AND_SEEK'] as GameMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => game.setMode(mode)}
                   disabled={!isHost}
-                  aria-pressed={room!.settings.mode === mode}
+                  aria-pressed={
+                    isHideAndSeekMode(mode)
+                      ? isHideAndSeekMode(room!.settings.mode)
+                      : room!.settings.mode === mode
+                  }
                   className={`${modeButtonBaseClass} ${
-                    room!.settings.mode === mode
+                    (isHideAndSeekMode(mode)
+                      ? isHideAndSeekMode(room!.settings.mode)
+                      : room!.settings.mode === mode)
                       ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100'
                       : 'bg-spotle-navy text-spotle-coral disabled:opacity-50'
                   } relative z-50`}
@@ -1260,6 +1285,32 @@ useEffect(() => {
               >
                 {getTheme(room!.settings.theme)?.name ?? 'Themes'}
               </button>
+            )}
+            {isHideAndSeekMode(room!.settings.mode) && (
+              <fieldset className="w-full shrink-0">
+                <legend className="mb-2 text-sm">Hiding time</legend>
+                <div className="grid grid-cols-3 gap-2">
+                  {[30, 45, 60].map((durationSec) => (
+                    <button
+                      key={durationSec}
+                      type="button"
+                      onClick={() => game.setHidingDuration(durationSec)}
+                      disabled={!isHost || room!.settings.hidingDurationSec === durationSec}
+                      aria-pressed={room!.settings.hidingDurationSec === durationSec}
+                      className={`${lobbyButtonClass} ${room!.settings.hidingDurationSec === durationSec ? 'bg-spotle-coral text-spotle-navy disabled:opacity-100' : ''}`}
+                    >
+                      {durationSec}s
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            {isPlayerHuntMode(room!.settings.mode) && (
+              <p className="shrink-0 px-1 text-xs leading-relaxed text-spotle-navy/70 sm:text-sm">
+                {isHideAndSeekMode(room!.settings.mode)
+                  ? 'One player seeks while the others hide. Reference selfies are required.'
+                  : 'Players hunt each other! Selfies are required before the round starts.'}
+              </p>
             )}
             <button type="button" onClick={leaveGame} className={`${lobbyButtonClass} relative z-50`}>
               Leave
@@ -1328,6 +1379,24 @@ useEffect(() => {
     );
   }
 
+  if (room!.status === 'HIDING_PHASE') {
+    const isSeeker = me?.role === 'SEEKER';
+    return (
+      <main className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-spotle-navy px-6 text-center font-pixel text-spotle-cream">
+        <span className="text-7xl" aria-hidden="true">{isSeeker ? '🙈' : '🏃'}</span>
+        <h1 className={`max-w-3xl text-2xl leading-tight sm:text-4xl ${isSeeker ? 'text-spotle-coral' : 'text-green-300'}`}>
+          {isSeeker ? 'Hiders are scattering! Eyes closed…' : 'RUN & HIDE! Webcams are OFF.'}
+        </h1>
+        <p className="text-base sm:text-xl">
+          {isSeeker ? 'No peeking until the timer ends.' : 'Find a hiding spot before the Seeker starts searching.'}
+        </p>
+        <p className="text-7xl font-bold tabular-nums text-spotle-coral sm:text-8xl" aria-live="off">
+          {hidingSecondsRemaining}s
+        </p>
+      </main>
+    );
+  }
+
   /* --------------------------- SCOREBOARD ---------------------------- */
   if (
     (room!.status === 'ROUND_RESULT' || room!.status === 'GAME_OVER')
@@ -1337,8 +1406,9 @@ useEffect(() => {
     return (
       <ScoreboardScreen
         players={players}
+        hideAndSeekWinner={room!.hideAndSeekWinner}
         round={round?.roundNumber ?? 1}
-        totalRounds={room!.settings.totalRounds}
+        totalRounds={isHideAndSeekMode(room!.settings.mode) ? 1 : room!.settings.totalRounds}
         isFinal={room!.status === 'GAME_OVER'}
         isHost={isHost}
         onNextRound={handleNextRound}
@@ -1353,9 +1423,25 @@ useEffect(() => {
     <PlayingScreen
       players={players}
       localPlayerId={game.playerId}
+      mode={room!.settings.mode}
+      localRole={me?.role}
+      tagTargets={round?.tagTargets ?? []}
+      caughtPlayerIds={players.filter((player) => player.isCaught).map((player) => player.id)}
+      selectedHiderId={selectedHiderId}
+      onSelectHider={setSelectedHiderId}
+      onTagHider={(targetPlayerId) => {
+        try {
+          game.submitTagAttempt(targetPlayerId, webrtc.captureJpeg());
+          setFlashing(true);
+          window.setTimeout(() => setFlashing(false), 500);
+        } catch (error) {
+          setCaptureError(error instanceof Error ? error.message : 'Could not capture the tag photo.');
+        }
+      }}
+      remainingSeconds={hidingSecondsRemaining}
       skippedPlayers={skippedPlayers}
       round={round}
-      totalRounds={room!.settings.totalRounds}
+      totalRounds={isHideAndSeekMode(room!.settings.mode) ? 1 : room!.settings.totalRounds}
       elapsedSeconds={elapsedSeconds}
       isCountdown={room!.status === 'COUNTDOWN'}
       countdownNumber={countdownNumber}
@@ -1470,7 +1556,7 @@ function PlayerTile({
           autoPlay
           muted
           playsInline
-          className={`h-full w-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+          className={`h-full w-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''} ${player.isCaught ? 'grayscale' : ''}`}
         />
       ) : stream ? (
         <video
@@ -1480,7 +1566,7 @@ function PlayerTile({
           // elements so it survives view changes and mobile autoplay rules.
           muted
           playsInline
-          className="h-full w-full object-cover"
+          className={`h-full w-full object-cover ${player.isCaught ? 'grayscale' : ''}`}
         />
       ) : null}
 
@@ -1493,6 +1579,12 @@ function PlayerTile({
 
       {isFlashing && (
         <div className="pointer-events-none absolute inset-0 z-[1] animate-flash" />
+      )}
+
+      {player.isCaught && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/65 grayscale" role="status">
+          <span className="rounded-full bg-red-700 px-5 py-3 text-2xl font-bold text-white">CAUGHT</span>
+        </div>
       )}
 
       {isLocal && !localStream && (
@@ -1599,18 +1691,13 @@ function PlayerTile({
   );
 }
 
-function TargetBadge({ round, playerCount }: { round: RoundData; playerCount: number }) {
+function TargetBadge({ round, className }: { round: RoundData; className?: string }) {
   const isPlayerHunt = isPlayerHuntMode(round.mode);
   const targetName = isPlayerHunt
     ? round.targetObject.replace(/^Hunt\s+/i, '').replace(/!$/, '')
     : round.targetObject;
-  const positionClass = playerCount === 1
-    ? 'right-4 top-4'
-    : playerCount === 2
-      ? 'bottom-[9rem] left-1/2 -translate-x-1/2'
-      : 'left-1/2 top-[calc((100dvh-8rem)/2)] -translate-x-1/2 -translate-y-1/2';
   return (
-    <div className={`pointer-events-none absolute z-50 w-[min(80vw,13rem)] select-none sm:w-[min(34vw,15rem)] ${positionClass}`}>
+    <div className={className ?? 'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'}>
       <div className="mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 px-3 py-3 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4">
         <div className="my-1 flex min-h-20 items-center justify-center sm:min-h-24">
           {isPlayerHunt && round.targetPlayerSelfie ? (
@@ -1637,6 +1724,14 @@ function TargetBadge({ round, playerCount }: { round: RoundData; playerCount: nu
 function PlayingScreen({
   players,
   localPlayerId,
+  mode,
+  localRole,
+  tagTargets,
+  caughtPlayerIds,
+  selectedHiderId,
+  onSelectHider,
+  onTagHider,
+  remainingSeconds,
   skippedPlayers,
   round,
   totalRounds,
@@ -1665,6 +1760,14 @@ function PlayingScreen({
 }: {
   players: Player[];
   localPlayerId: string | null;
+  mode: GameMode;
+  localRole?: PlayerRole;
+  tagTargets: HideAndSeekTarget[];
+  caughtPlayerIds: string[];
+  selectedHiderId: string | null;
+  onSelectHider: (playerId: string) => void;
+  onTagHider: (playerId: string) => void;
+  remainingSeconds: number;
   skippedPlayers: string[];
   round: RoundData | null;
   totalRounds: number;
@@ -1691,6 +1794,11 @@ function PlayingScreen({
   onFoundIt: () => void;
   onGiveUp: () => void;
 }) {
+  const isHideAndSeek = isHideAndSeekMode(mode);
+  const localPlayerIsCaught = players.some((player) => player.id === localPlayerId && player.isCaught);
+  const availableHiders = tagTargets.filter((target) => !caughtPlayerIds.includes(target.id));
+  const selectedHider = availableHiders.find((target) => target.id === selectedHiderId)
+    ?? availableHiders[0];
   return (
     <main className="relative h-dvh min-h-[480px] w-full overflow-hidden bg-spotle-cream font-pixel text-spotle-navy">
       <div
@@ -1735,8 +1843,54 @@ function PlayingScreen({
         })}
       </div>
 
-      {round && <TargetBadge round={round} playerCount={players.length} />}
+  {round && !isHideAndSeek && players.length >= 3 && (
+        <TargetBadge
+          round={round}
+          className="pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem-var(--spotle-safe-area-bottom))/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
+        />
+      )}
+      {round && !isHideAndSeek && players.length <= 2
+        && !refereeMessage
+        && !captureError
+        && !players.some((player) => player.status === 'VERIFYING') && (
+        <TargetBadge
+          round={round}
+          className={`pointer-events-none absolute z-50 w-24 max-w-full md:w-56 ${
+            players.length === 2
+              ? 'bottom-[calc(9rem+var(--spotle-safe-area-bottom))] left-1/2 -translate-x-1/2'
+              : 'right-4 top-4'
+          }`}
+        />
+      )}
 
+      {isHideAndSeek && localRole === 'SEEKER' && (
+        <div className="absolute inset-x-2 top-20 z-40 flex justify-center px-2 sm:top-24">
+          <div className="flex max-w-full gap-2 overflow-x-auto rounded-2xl bg-spotle-navy/85 p-2 backdrop-blur-sm">
+            {availableHiders.map((target) => (
+              <button
+                key={target.id}
+                type="button"
+                onClick={() => onSelectHider(target.id)}
+                aria-pressed={selectedHider?.id === target.id}
+                aria-label={`Select ${target.name}`}
+                className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl p-1 text-xs text-white sm:w-20 ${selectedHider?.id === target.id ? 'bg-red-700' : 'bg-black/40'}`}
+              >
+                <img src={target.selfieBase64} alt="" className="h-11 w-11 rounded-full object-cover sm:h-14 sm:w-14" />
+                <span className="max-w-full truncate">{target.name}</span>
+              </button>
+            ))}
+            {availableHiders.length === 0 && <p className="px-3 py-2 text-sm text-white">All hiders tagged</p>}
+          </div>
+        </div>
+      )}
+
+      {isHideAndSeek && localRole === 'HIDER' && !localPlayerIsCaught && (
+        <div className="pointer-events-none absolute inset-x-2 top-20 z-40 flex justify-center sm:top-24">
+          <p className="animate-pulse rounded-xl bg-red-700/95 px-4 py-2 text-center text-sm font-bold text-white sm:text-lg">
+            SEEKER IS HUNTING! STAY HIDDEN!
+          </p>
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-x-0 top-4 z-40 flex justify-center px-4">
         <div className="rounded-3xl border-4 border-spotle-cream bg-spotle-coral px-3 py-2 text-center text-sm text-spotle-navy md:px-8 md:py-3 md:text-4xl">
           ROUND {round?.roundNumber ?? 1} / {totalRounds}
@@ -1766,16 +1920,32 @@ function PlayingScreen({
         </button>
 
         <div className="mx-auto flex w-full max-w-2xl items-center justify-center gap-2 sm:gap-5">
-          <button
-            type="button"
-            onClick={onFoundIt}
-            aria-label="Found it"
-            disabled={!canPress}
-            className="h-20 min-w-0 flex-1 rounded-3xl border-4 border-spotle-navy bg-spotle-coral px-2 text-center text-lg text-spotle-navy transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:px-3 sm:text-3xl md:text-4xl"
-          >
-            FOUND IT!
-          </button>
-          {canSkip && (
+          {isHideAndSeek ? localRole === 'SEEKER' ? (
+            <button
+              type="button"
+              onClick={() => selectedHider && onTagHider(selectedHider.id)}
+              aria-label={selectedHider ? `Tag ${selectedHider.name}` : 'Select a hider to tag'}
+              disabled={!selectedHider || !canPress}
+              className="h-20 min-w-0 flex-1 rounded-3xl border-4 border-red-800 bg-red-600 px-2 text-center text-lg text-white transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:px-3 sm:text-3xl md:text-4xl"
+            >
+              {selectedHider ? `TAG ${selectedHider.name}!` : 'NO HIDERS LEFT'}
+            </button>
+          ) : localPlayerIsCaught ? (
+            <p className="text-center text-sm font-bold text-red-700 sm:text-lg">YOU ARE CAUGHT</p>
+          ) : (
+            <p className="animate-pulse text-center text-sm font-bold text-red-700 sm:text-lg">STAY HIDDEN</p>
+          ) : (
+            <button
+              type="button"
+              onClick={onFoundIt}
+              aria-label="Found it"
+              disabled={!canPress}
+              className="h-20 min-w-0 flex-1 rounded-3xl border-4 border-spotle-navy bg-spotle-coral px-2 text-center text-lg text-spotle-navy transition-transform active:scale-95 disabled:opacity-60 sm:h-24 sm:px-3 sm:text-3xl md:text-4xl"
+            >
+              FOUND IT!
+            </button>
+          )}
+          {!isHideAndSeek && canSkip && (
             <button
               type="button"
               onClick={onGiveUp}
@@ -1789,7 +1959,7 @@ function PlayingScreen({
 
         <div className="flex shrink-0 items-center justify-end gap-1 text-sm sm:gap-2 sm:text-xl md:text-2xl">
           <Clock aria-hidden="true" className="h-7 w-7 shrink-0 sm:h-9 sm:w-9" />
-          <span className="min-w-[4ch]">{formatTime(elapsedSeconds)}</span>
+          <span className="min-w-[4ch]">{formatTime(isHideAndSeek ? remainingSeconds : elapsedSeconds)}</span>
         </div>
       </nav>
 
@@ -1809,6 +1979,7 @@ function PlayingScreen({
 
 function ScoreboardScreen({
   players,
+  hideAndSeekWinner,
   round,
   totalRounds,
   isFinal,
@@ -1818,6 +1989,7 @@ function ScoreboardScreen({
   onExit,
 }: {
   players: Player[];
+  hideAndSeekWinner?: 'SEEKER' | 'HIDERS';
   round: number;
   totalRounds: number;
   isFinal: boolean;
@@ -1855,7 +2027,11 @@ function ScoreboardScreen({
       <section className="relative z-10 w-full max-w-lg rounded-[2rem] border-4 border-spotle-cream bg-spotle-navy p-6 text-spotle-coral sm:p-8">
         <h1 className="text-center text-2xl">{isFinal ? 'Final Scores' : 'Scoreboard'}</h1>
         <p className="mt-5 text-center text-xl">
-          Round {round} of {totalRounds}
+          {hideAndSeekWinner === 'SEEKER'
+            ? 'SEEKER WINS!'
+            : hideAndSeekWinner === 'HIDERS'
+              ? 'HIDERS SURVIVE!'
+              : `Round ${round} of ${totalRounds}`}
         </p>
         <ol className="mt-8 space-y-3">
           {ranked.map((player, index) => (

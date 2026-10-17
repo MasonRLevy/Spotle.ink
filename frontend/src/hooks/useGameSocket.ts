@@ -43,7 +43,9 @@ export interface UseGameSocket {
   registerPeerId: (peerId: string) => void;
   setTheme: (theme: ThemeType | null) => void;
   setMode: (mode: GameMode) => void;
+  setHidingDuration: (durationSec: number) => void;
   submitSelfie: (selfieBase64: string) => void;
+  submitTagAttempt: (targetPlayerId: string, capturedFrameBase64: string) => void;
   startGame: () => void;
   sendAttempt: (imageDataUrl: string) => void;
   giveUp: () => void;
@@ -148,8 +150,16 @@ export function useGameSocket(): UseGameSocket {
     socketRef.current?.emit('room:set-mode', { mode });
   }, []);
 
+  const setHidingDuration = useCallback((durationSec: number) => {
+    socketRef.current?.emit('room:set-hiding-duration', { durationSec });
+  }, []);
+
   const submitSelfie = useCallback((selfieBase64: string) => {
     socketRef.current?.emit('SUBMIT_SELFIE', { selfieBase64 });
+  }, []);
+
+  const submitTagAttempt = useCallback((targetPlayerId: string, capturedFrameBase64: string) => {
+    socketRef.current?.emit('SUBMIT_TAG_ATTEMPT', { targetPlayerId, capturedFrameBase64 });
   }, []);
 
   const startGame = useCallback(() => {
@@ -187,7 +197,9 @@ export function useGameSocket(): UseGameSocket {
     registerPeerId,
     setTheme,
     setMode,
+    setHidingDuration,
     submitSelfie,
+    submitTagAttempt,
     startGame,
     sendAttempt,
     giveUp,
