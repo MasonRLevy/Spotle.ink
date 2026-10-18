@@ -2,7 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Ink, sitting. Generated from src/assets/Ink_sit.png, cropped to the
+         artwork first: the source is 2048x2048 but the dog only occupies the
+         middle of it, and without cropping he is an unreadable speck at tab
+         size. The .ico carries 16-64px variants so Windows and the tab bar
+         each get a crisp one; apple-touch-icon is flattened onto the brand
+         navy because iOS renders transparency as black. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Fetched up-front so the real font is ready at first paint. Without
          this the browser only discovers the font after parsing CSS, paints
