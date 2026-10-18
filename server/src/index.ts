@@ -152,7 +152,7 @@ peerServer.on('disconnect', (client) => {
  */
 app.get('/api/rtc-config', async (_req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(await getRtcConfig());
+  res.json({ ...(await getRtcConfig()), bundle: servedBundle });
 });
 
 app.get('/api/health', (_req, res) => {
@@ -217,6 +217,28 @@ app.use('/rtc-check', express.static(path.join(serverRoot, 'diagnostics')));
 const clientDist = path.join(repoRoot, 'frontend', 'dist');
 const clientIndex = path.join(clientDist, 'index.html');
 const hasClient = fs.existsSync(clientIndex);
+
+/**
+ * The hashed filename of the bundle we are currently serving, e.g.
+ * "index-BXjgtwcL.js".
+ *
+ * Handed to the client so it can tell whether the page someone has open was
+ * built from a different deploy. That matters more than it sounds: a client
+ * running an older bundle may be talking to a DIFFERENT PeerJS broker than
+ * everyone else, in which case it cannot discover them at all however good
+ * the network is - each side just reports the other as not online. With
+ * three people pushing to main during an event, somebody always has a stale
+ * tab open, so make it visible instead of mysterious.
+ */
+const servedBundle = (() => {
+  if (!hasClient) return null;
+  try {
+    const html = fs.readFileSync(clientIndex, 'utf8');
+    return /\/assets\/(index-[A-Za-z0-9_-]+\.js)/.exec(html)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+})();
 
 if (hasClient) {
   app.use(express.static(clientDist));

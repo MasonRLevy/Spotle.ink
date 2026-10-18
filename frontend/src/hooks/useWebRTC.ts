@@ -97,12 +97,19 @@ async function loadRtcConfig(): Promise<RtcConfigResponse | null> {
   }
 }
 
-/** PeerJS options for our own broker, or the public cloud as a fallback. */
-function peerOptions(config: RtcConfigResponse | null, useOwnBroker: boolean) {
+/**
+ * PeerJS options.
+ *
+ * Every client in a room MUST end up on the same signalling broker, so this
+ * is deliberately not negotiable per client: either the server told us a
+ * peerPath (everyone uses ours) or it did not (everyone uses the PeerJS
+ * cloud). The choice is the server's, identical for all players.
+ */
+function peerOptions(config: RtcConfigResponse | null) {
   const iceServers = config?.iceServers;
   const base = iceServers ? { config: { iceServers } } : {};
 
-  if (!useOwnBroker || !config?.peerPath) return base;
+  if (!config?.peerPath) return base;
 
   const origin = serverOrigin();
   const secure = origin.protocol === 'https:';
@@ -175,8 +182,6 @@ export function useWebRTC(options: {
   const pairStateRef = useRef<Map<string, PairState>>(new Map());
   const remoteMediaRef = useRef<Record<string, RemoteMedia>>({});
   const rtcConfigRef = useRef<RtcConfigResponse | null>(null);
-  const usingOwnBrokerRef = useRef(true);
-  const brokerFallbackDoneRef = useRef(false);
 
   /** iOS remote-audio gain stage. */
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -399,11 +404,10 @@ export function useWebRTC(options: {
     let cancelled = false;
 
     /** Creates a Peer, falling back to the public broker once if ours fails. */
-    function createPeer(useOwnBroker: boolean) {
-      usingOwnBrokerRef.current = useOwnBroker;
-      const peer = new Peer(peerOptions(rtcConfigRef.current, useOwnBroker) as never);
+    function createPeer() {
+      const peer = new Peer(peerOptions(rtcConfigRef.current) as never);
       peerRef.current = peer;
-      setBrokerKind(useOwnBroker && rtcConfigRef.current?.peerPath ? 'own' : 'cloud');
+      setBrokerKind(rtcConfigRef.current?.peerPath ? 'own' : 'cloud');
 
       peer.on('open', (id) => {
         if (cancelled) return;
@@ -452,25 +456,28 @@ export function useWebRTC(options: {
           return;
         }
 
-        // Our own broker is unreachable or unhappy: fall back to the PeerJS
-        // cloud once, so the worst case is the behaviour we had before.
+        // DO NOT fall back to a different signalling broker here.
+        //
+        // This used to switch to the PeerJS cloud when our own broker had a
+        // problem, which looked like a safe belt-and-braces move and was in
+        // fact the opposite: two clients on two different brokers can never
+        // discover each other, however good their network is. One player
+        // having a single socket hiccup would silently drop them onto
+        // another signalling network and make them invisible to the whole
+        // room, permanently - each side reporting the other as "not online".
+        //
+        // Our broker is the same process that serves the game, so if the
+        // room's socket is up the broker is reachable. A transient failure
+        // is a reconnect, not a reason to change networks: peer.reconnect()
+        // below retries the SAME broker and keeps the same id.
         const brokerProblem =
           type === 'server-error'
           || type === 'socket-error'
           || type === 'socket-closed'
           || type === 'network';
-        if (brokerProblem && usingOwnBrokerRef.current && !brokerFallbackDoneRef.current) {
-          brokerFallbackDoneRef.current = true;
-          console.warn('[webrtc] own broker failed, falling back to PeerJS cloud:', err.message);
-          try {
-            peer.destroy();
-          } catch {
-            /* already dead */
-          }
-          callsRef.current.clear();
-          attemptsRef.current.clear();
-          setRemoteMedia({});
-          createPeer(false);
+        if (brokerProblem) {
+          console.warn('[webrtc] broker connection problem, reconnecting:', type, err.message);
+          if (!peer.destroyed && peer.disconnected) peer.reconnect();
           return;
         }
 
@@ -559,7 +566,7 @@ export function useWebRTC(options: {
         setLocalStream(stream);
         attachLocalVideo(stream);
 
-        createPeer(true);
+        createPeer();
       } catch (err) {
         if (cancelled) return;
         const message =
@@ -587,7 +594,6 @@ export function useWebRTC(options: {
       knownSinceRef.current.clear();
       attemptsRef.current.clear();
       pairStateRef.current.clear();
-      brokerFallbackDoneRef.current = false;
       peerRef.current?.destroy();
       peerRef.current = null;
       stopStream(streamRef.current);

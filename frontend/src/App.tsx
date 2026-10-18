@@ -34,6 +34,7 @@ import routeMarker from './assets/route.png';
 import xMarksTheSpot from './assets/X_marks_the_spot.png';
 import treasureChest from './assets/Treasure_Chest.png';
 import { useGameSocket } from './hooks/useGameSocket';
+import { apiUrl } from './utils/serverUrl';
 import { useWebRTC, type RemotePeer } from './hooks/useWebRTC';
 import { LobbyCamTile } from './components/LobbyCamTile';
 import { EmojiDisplay } from './components/EmojiDisplay';
@@ -101,7 +102,96 @@ function useSound(src: string): { current: HTMLAudioElement } {
   return ref as { current: HTMLAudioElement };
 }
 
+/**
+ * Warns when this page was built from a different deploy than the server is
+ * serving.
+ *
+ * A stale tab is not a cosmetic problem here. Clients pick their PeerJS
+ * broker from the server config at load time, so a tab from before a deploy
+ * can be talking to a different broker than everyone else, and then it
+ * cannot discover them at all - both sides just report the other as "not
+ * online", which looks exactly like a network fault and is not one. With
+ * several people pushing to main during an event this happens regularly, so
+ * say it out loud rather than letting people debug their wifi.
+ *
+ * Deliberately a wrapper around the app: it shares no state with the game
+ * and cannot affect any existing code path. Silent in dev, and silent if the
+ * server does not report a bundle.
+ */
+function StaleBuildBanner() {
+  const [stale, setStale] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl('/api/rtc-config'), { cache: 'no-store' });
+        if (!res.ok) return;
+        const config = (await res.json()) as { bundle?: string | null };
+        const served = config.bundle;
+        const mine = /\/(index-[A-Za-z0-9_-]+\.js)/.exec(import.meta.url)?.[1];
+        // No bundle from the server, or no hash in our own URL, means a dev
+        // build. Nothing meaningful to compare.
+        if (!served || !mine) return;
+        if (!cancelled && served !== mine) setStale(true);
+      } catch {
+        /* offline or server down - the app has its own messaging for that */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!stale) return null;
+
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'fixed',
+        insetInline: 0,
+        top: 0,
+        zIndex: 9999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+        padding: '10px 14px',
+        background: '#ffc857',
+        color: '#11162a',
+        font: '600 14px/1.3 system-ui, sans-serif',
+        textAlign: 'center',
+      }}
+    >
+      <span>This tab is running an old version — other players may not see your camera.</span>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          padding: '6px 14px',
+          borderRadius: 999,
+          border: 0,
+          background: '#11162a',
+          color: '#fff',
+          font: '600 14px system-ui, sans-serif',
+        }}
+      >
+        Reload
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
+  return (
+    <>
+      <StaleBuildBanner />
+      <AppInner />
+    </>
+  );
+}
+
+function AppInner() {
   const game = useGameSocket();
   const [playerName, setPlayerName] = useState('');
   const [countdownNumber, setCountdownNumber] = useState<number | null>(null); // <-- ADD THIS
