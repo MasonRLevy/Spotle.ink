@@ -52,7 +52,7 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 `ThemeType` = `UF_SWAMP` | `HACKATHON` | `GENERAL` | `OUTDOORS`, defined with icons in `GAME_THEMES` (`shared/game.ts`). The lobby Themes button opens the picker; the host's choice is host-only and lobby-only, stored on `room.settings.theme`, and only items whose `themes[]` contains it are drawn.
 
 ### !! ITEM COUNTS ARE LOW - DEMO RISK !!
-`MASTER_ITEM_DATABASE` (`server/src/data/itemRegistry.ts`) holds **12 items**: UF_SWAMP 6, HACKATHON 5, GENERAL 4, OUTDOORS 3. Games are 10 rounds, so a themed game **must** repeat - with 3 Outdoors items, 7 of the 10 rounds are repeats no matter how good the picker is. **Adding items is the single highest-value thing left.** A theme needs >= 10 items for a repeat-free 10-round game.
+`MASTER_ITEM_DATABASE` (`server/src/data/itemRegistry.ts`) combines the active targets with the converted legacy pool and currently holds **145 unique items**: UF_SWAMP 9, HACKATHON 51, GENERAL 134, OUTDOORS 15 (themes overlap). The themed picker cycles only after exhausting that theme's items, so a 10-round UF_SWAMP game can still repeat once. Keep adding correctly themed items if a theme has fewer than 10.
 
 ### Item selection
 * No duplicates until a theme is exhausted, then the cycle restarts cleanly rather than letting `usedObjects` grow forever (which used to leave every later pick an unguarded random draw, causing A,B,A,B clustering).
@@ -61,8 +61,8 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 * Measured over 500 simulated games per theme: 0 back-to-back repeats, and repeats per game exactly equal the unavoidable floor (`10 - poolSize`). **Any repeat you see now is a missing-items problem, not a picker problem.**
 * `unusedCount(theme, used)` is exported for callers that need to know whether a cycle is finished.
 
-### Legacy: the old object pool
-`server/gemini-referee/objectPool.ts` (146 items with Fluent flat-SVG art) is **no longer used for round targets** - `itemRegistry.ts` replaced it. It still backs `/api/referee/*` and the referee workbench, and `/api/health` still reports its count. Its `themesForObject()` / `CATEGORY_THEME_FALLBACK` map to the old `HOME`/`UF` ids and is dead code.
+### Shared legacy object pool
+`server/gemini-referee/objectPool.ts` (146 items with Fluent flat-SVG art) still backs `/api/referee/*` and the referee workbench. `server/src/data/itemRegistry.ts` also converts these records into the active round-target format, maps their old `HOME`/`UF` categories to current themes, and combines them with the core targets. `/api/health` still reports the legacy pool count.
 
 ### Game rules as implemented
 * Max 4 players, 10 rounds, 90s round limit.

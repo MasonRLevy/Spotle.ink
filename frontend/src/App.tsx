@@ -1708,10 +1708,12 @@ function TargetBadge({
   round,
   className,
   style,
+  compact = false,
 }: {
   round: RoundData;
   className?: string;
   style?: CSSProperties;
+  compact?: boolean;
 }) {
   const isPlayerHunt = isPlayerHuntMode(round.mode);
   const targetName = isPlayerHunt
@@ -1722,22 +1724,36 @@ function TargetBadge({
       className={className ?? 'pointer-events-none absolute left-1/2 top-[calc((100dvh-8rem)/2)] z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]'}
       style={style}
     >
-      <div className="mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 px-3 py-3 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md sm:px-5 sm:py-4">
-        <div className="my-1 flex min-h-20 items-center justify-center sm:min-h-24">
+      <div className={`mx-auto flex flex-col items-center justify-center rounded-2xl bg-spotle-navy/90 text-center text-spotle-coral shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur-md ${
+        compact ? 'px-2 py-1.5 sm:px-5 sm:py-4' : 'px-3 py-3 sm:px-5 sm:py-4'
+      }`}>
+        <div className={`my-1 flex items-center justify-center ${
+          compact ? 'min-h-12 sm:min-h-24' : 'min-h-20 sm:min-h-24'
+        }`}>
           {isPlayerHunt && round.targetPlayerSelfie ? (
             <img
               src={round.targetPlayerSelfie}
               alt={`Target player ${targetName}`}
-              className="h-20 w-20 animate-pulse rounded-full object-cover shadow-[0_0_20px_rgba(220,38,38,0.8)] sm:h-24 sm:w-24"
+              className={`animate-pulse rounded-full object-cover shadow-[0_0_20px_rgba(220,38,38,0.8)] ${
+                compact ? 'h-12 w-12 sm:h-24 sm:w-24' : 'h-20 w-20 sm:h-24 sm:w-24'
+              }`}
             />
           ) : (
-            <EmojiDisplay emoji={round.emoji} name={targetName} />
+            <EmojiDisplay
+              emoji={round.emoji}
+              name={targetName}
+              className={compact ? 'h-12 w-12 sm:h-24 sm:w-24' : undefined}
+            />
           )}
         </div>
-        <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-spotle-coral sm:text-xs">
+        <span className={`mt-2 font-black uppercase tracking-widest text-spotle-coral ${
+          compact ? 'text-[8px] sm:text-xs' : 'text-[10px] sm:text-xs'
+        }`}>
           {isPlayerHunt ? 'Hunt Player' : 'Target Item'}
         </span>
-        <h2 className="mt-0.5 max-w-full break-words px-2 text-sm font-extrabold leading-snug text-white drop-shadow-sm sm:text-lg">
+        <h2 className={`mt-0.5 max-w-full break-words px-1 font-extrabold leading-snug text-white drop-shadow-sm ${
+          compact ? 'text-[10px] sm:px-2 sm:text-lg' : 'px-2 text-sm sm:text-lg'
+        }`}>
           {targetName}
         </h2>
       </div>
@@ -1868,7 +1884,8 @@ function PlayingScreen({
         {round && !isHideAndSeek && players.length === 4 && (
           <TargetBadge
             round={round}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-50 w-[min(80vw,13rem)] -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-50 w-32 -translate-x-1/2 -translate-y-1/2 select-none sm:w-[min(34vw,15rem)]"
+            compact
           />
         )}
       </div>

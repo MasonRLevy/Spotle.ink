@@ -1,7 +1,9 @@
 import type { ScavengerItem, ThemeType } from '../../../shared/game.js';
 import { randomInt } from 'node:crypto';
+import { OBJECT_POOL, themesForObject } from '../../gemini-referee/objectPool.js';
+import type { FindableObject } from '../../gemini-referee/types.js';
 
-export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
+const CORE_ITEM_DATABASE: ScavengerItem[] = [
   {
     id: 'uf-century-tower',
     name: 'Century Tower',
@@ -112,6 +114,137 @@ export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
   },
 ];
 
+const HACKATHON_ITEM_IDS = new Set([
+  'headphones',
+  'laptop-charger',
+  'backpack',
+  'sneaker',
+  'eyeglasses',
+  'hoodie',
+  'pen',
+  'notebook',
+  'wristwatch',
+  'computer-mouse',
+  'id-card',
+  'baseball-cap',
+  'sticker',
+  'laptop',
+  'smartphone',
+  'keyboard',
+  'clipboard',
+  'sticky-notes',
+  't-shirt',
+  'jeans',
+  'pencil',
+  'name-badge',
+  'usb-cable',
+  'marker',
+  'planner',
+  'microphone',
+  'usb-drive',
+  'mousepad',
+  'power-bank',
+  'wallet-card',
+  'camera',
+  'tablet',
+  'headset',
+  'keyboard-shortcut',
+  'folder',
+  'binder',
+  'whiteboard',
+  'printer',
+  'speaker',
+  'keyboard-dock',
+  'usb-hub',
+  'gluestick',
+  'stapler',
+  'tape',
+  'ruler',
+  'eraser',
+  'pencil-case',
+  'phone-charger',
+  'laptop-stand',
+  'desktop-cleaner',
+]);
+
+const OUTDOOR_ITEM_IDS = new Set([
+  'backpack',
+  'sneaker',
+  'umbrella',
+  'flashlight',
+  'gloves',
+  'scarf',
+  'water-bottle',
+  'sunglasses',
+  'hat',
+  'sandal',
+  'backpack-strap',
+  'shoe-laces',
+  'socks-pair',
+]);
+
+function legacyThemes(item: FindableObject): ThemeType[] {
+  const oldThemes = themesForObject(item);
+  const themes = new Set<ThemeType>(
+    oldThemes.flatMap((theme) => {
+      if (theme === 'HOME' || theme === 'GENERAL') return ['GENERAL'] as const;
+      if (theme === 'UF' || theme === 'UF_SWAMP') return ['UF_SWAMP'] as const;
+      if (theme === 'HACKATHON') return ['HACKATHON'] as const;
+      if (theme === 'OUTDOORS') return ['OUTDOORS'] as const;
+      return [];
+    }),
+  );
+
+  if (item.category === 'HOUSEHOLD') themes.add('GENERAL');
+  if (item.category === 'HACKATHON_CAMPUS') themes.add('UF_SWAMP');
+  if (item.id === 'french-fries-sculpture') themes.add('UF_SWAMP');
+  if (HACKATHON_ITEM_IDS.has(item.id)) themes.add('HACKATHON');
+  if (OUTDOOR_ITEM_IDS.has(item.id)) themes.add('OUTDOORS');
+
+  return [...themes];
+}
+
+function normalizeItemName(name: string): string {
+  return name.toLocaleLowerCase('en-US').replace(/[^a-z0-9]/g, '');
+}
+
+function convertLegacyItem(item: FindableObject): ScavengerItem {
+  const aliases = item.examples
+    .split(',')
+    .map((example) => example.trim())
+    .filter(Boolean);
+  return {
+    id: item.id,
+    name: item.name,
+    themes: legacyThemes(item),
+    difficulty: item.difficulty,
+    emoji: item.emoji,
+    aliases,
+    cheatRisks: [
+      'a picture of the object displayed on a phone or computer screen',
+      'a printed picture instead of the real object',
+    ],
+  };
+}
+
+const existingNames = new Set(
+  CORE_ITEM_DATABASE.flatMap((item) => [item.name, ...item.aliases].map(normalizeItemName)),
+);
+const existingIds = new Set(CORE_ITEM_DATABASE.map((item) => item.id));
+
+const LEGACY_ITEM_DATABASE = OBJECT_POOL
+  .filter((item) => {
+    if (existingIds.has(item.id)) return false;
+    const itemNames = [item.name, ...item.examples.split(',')].map(normalizeItemName);
+    return !itemNames.some((name) => existingNames.has(name));
+  })
+  .map(convertLegacyItem);
+
+export const MASTER_ITEM_DATABASE: ScavengerItem[] = [
+  ...CORE_ITEM_DATABASE,
+  ...LEGACY_ITEM_DATABASE,
+];
+
 /**
  * Unbiased random index backed by the crypto RNG.
  *
@@ -143,6 +276,17 @@ export function itemsForTheme(theme: ThemeType): ScavengerItem[] {
 export function unusedCount(theme: ThemeType | null, usedObjectIds: string[]): number {
   const pool = theme ? itemsForTheme(theme) : MASTER_ITEM_DATABASE;
   return pool.filter((item) => !usedObjectIds.includes(item.id)).length;
+}
+
+/** Begin a fresh pool cycle after exhausting the current theme or full pool. */
+export function prepareUsedObjectsForNextRound(
+  theme: ThemeType | null,
+  usedObjectIds: string[],
+): string[] {
+  if (usedObjectIds.length === 0 || unusedCount(theme, usedObjectIds) > 0) {
+    return usedObjectIds;
+  }
+  return usedObjectIds.slice(-1);
 }
 
 export function pickThemeTarget(theme: ThemeType, usedObjectIds: string[] = []): ScavengerItem {

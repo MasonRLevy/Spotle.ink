@@ -39,7 +39,7 @@ export function ThemePicker({ selected, onSelect, onClose }: ThemePickerProps) {
 
         <h2 className="pr-10 text-xl text-spotle-navy sm:pr-0 sm:text-2xl">Themes</h2>
 
-        <div className="mt-4 max-h-[40vh] overflow-y-auto rounded-[1.25rem] border-4 border-spotle-navy bg-spotle-navy/5 p-2 pb-4 sm:mt-6 sm:max-h-[45vh] sm:rounded-[1.5rem] sm:p-3 sm:pb-6">
+        <div className="mt-4 rounded-[1.25rem] border-4 border-spotle-navy bg-spotle-navy/5 p-3 sm:mt-6 sm:rounded-[1.5rem] sm:p-4">
           <ul className="grid grid-cols-2 gap-2 sm:gap-3">
             {GAME_THEMES.map((theme) => {
               const isSelected = selected === theme.id;
