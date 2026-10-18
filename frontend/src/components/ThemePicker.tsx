@@ -21,7 +21,7 @@ export function ThemePicker({ selected, onSelect, onClose }: ThemePickerProps) {
       role="presentation"
     >
       <div
-        className="relative w-full max-w-md rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-6 text-center"
+        className="relative max-h-[calc(100dvh-3rem)] w-full max-w-md overflow-y-auto rounded-[2rem] border-4 border-spotle-navy bg-spotle-cream p-6 text-center"
         role="dialog"
         aria-modal="true"
         aria-label="Choose a theme"
@@ -39,7 +39,7 @@ export function ThemePicker({ selected, onSelect, onClose }: ThemePickerProps) {
 
         <h2 className="text-2xl text-spotle-navy">Themes</h2>
 
-        <div className="mt-6 max-h-[45vh] overflow-y-auto rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy/5 p-3">
+        <div className="mt-6 max-h-[45vh] overflow-y-auto rounded-[1.5rem] border-4 border-spotle-navy bg-spotle-navy/5 p-3 pb-6">
           <ul className="grid grid-cols-2 gap-3">
             {GAME_THEMES.map((theme) => {
               const isSelected = selected === theme.id;
