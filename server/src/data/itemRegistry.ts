@@ -303,3 +303,34 @@ export function pickAnyTarget(usedObjectIds: string[] = []): ScavengerItem {
 export function pickRoundTarget(usedObjectIds: string[] = [], theme: ThemeType | null = null): ScavengerItem {
   return theme ? pickThemeTarget(theme, usedObjectIds) : pickAnyTarget(usedObjectIds);
 }
+
+/**
+ * Resolves SPOTLE_FORCE_TARGET, which pins the round target for a repeatable
+ * demo or for npm run simulate.
+ *
+ * Matches an id, a name or any alias, case-insensitively, and honours the
+ * room's theme filter the same way an unforced pick would. Exact-id-only
+ * matching failed silently: the server just drew a random item instead, so
+ * `npm run simulate` reported four confusing "that is not a laptop" verdicts
+ * that looked like a referee bug. Returning null lets the caller say so out
+ * loud rather than quietly ignoring the setting.
+ */
+export function findItemByRef(ref: string, theme: ThemeType | null = null): ScavengerItem | null {
+  const needle = ref.trim().toLowerCase();
+  if (!needle) return null;
+  const pool = theme ? itemsForTheme(theme) : MASTER_ITEM_DATABASE;
+  return (
+    pool.find((item) => item.id.toLowerCase() === needle)
+    ?? pool.find((item) => item.name.toLowerCase() === needle)
+    ?? pool.find((item) => item.aliases.some((alias) => alias.toLowerCase() === needle))
+    ?? null
+  );
+}
+
+/** Item counts per theme, for the boot log and the demo-risk check. */
+export function themeCoverage(): Record<ThemeType, number> {
+  const themes: ThemeType[] = ['UF_SWAMP', 'HACKATHON', 'GENERAL', 'OUTDOORS'];
+  return Object.fromEntries(
+    themes.map((theme) => [theme, itemsForTheme(theme).length]),
+  ) as Record<ThemeType, number>;
+}

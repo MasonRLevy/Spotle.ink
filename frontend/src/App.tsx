@@ -84,6 +84,23 @@ function getGridClass(playerCount: number) {
   return 'grid-cols-2 grid-rows-2';
 }
 
+/**
+ * One <audio> per sound effect, created exactly once.
+ *
+ * `useRef(new Audio(src))` reads as if it did this, but it does not: the
+ * argument is evaluated on EVERY render and only the first result is ever
+ * kept. Each re-render was therefore building four more HTMLAudioElements
+ * and kicking off four more mp3 downloads that it then threw away. Measured
+ * in one short lobby session: 102 audio elements alive, and a stream of
+ * aborted range requests for the same four files (~345 KB per render on a
+ * phone). Lazily assigning inside the ref keeps it to four for the session.
+ */
+function useSound(src: string): { current: HTMLAudioElement } {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  if (ref.current === null) ref.current = new Audio(src);
+  return ref as { current: HTMLAudioElement };
+}
+
 export default function App() {
   const game = useGameSocket();
   const [playerName, setPlayerName] = useState('');
@@ -114,10 +131,10 @@ export default function App() {
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
   const [isMoving, setIsMoving] = useState(false);
 
-  const flashAudio = useRef(new Audio(flashAudioSrc));
-  const barkAudio = useRef(new Audio(barkAudioSrc));
-  const correctAudio = useRef(new Audio(correctAudioSrc));
-  const wrongAudio = useRef(new Audio(wrongAudioSrc));
+  const flashAudio = useSound(flashAudioSrc);
+  const barkAudio = useSound(barkAudioSrc);
+  const correctAudio = useSound(correctAudioSrc);
+  const wrongAudio = useSound(wrongAudioSrc);
   const lobbyRef = useRef<HTMLDivElement | null>(null);
   const dogRef = useRef<HTMLDivElement | null>(null);
   const runningSpriteRef = useRef<HTMLImageElement | null>(null);
@@ -224,6 +241,29 @@ useEffect(() => {
   useEffect(() => {
     webrtc.setVideoEnabled(room?.status !== 'HIDING_PHASE');
   }, [room?.status, webrtc.setVideoEnabled]);
+
+  /**
+   * Live mesh readout for debugging "I can't see X" at the venue.
+   *
+   * /api/rooms/<pin>/debug answers the server-side half of that question
+   * (did everyone register a PeerJS id?). This is the client-side half: per
+   * peer, the ICE state and whether media is actually arriving. Open the
+   * console on the device that cannot see someone and run __spotleMesh().
+   *
+   * Deliberately console/window only - no UI surface to go wrong on stage.
+   */
+  useEffect(() => {
+    const report = {
+      broker: webrtc.brokerKind,
+      localPeerId: webrtc.localPeerId,
+      peers: webrtc.meshDiagnostics,
+    };
+    (window as unknown as { __spotleMesh: () => unknown }).__spotleMesh = () => report;
+    const broken = webrtc.meshDiagnostics.filter((pair) => pair.state === 'exhausted');
+    if (broken.length > 0) {
+      console.warn('[mesh] gave up connecting to', broken.map((pair) => pair.peerId).join(', '));
+    }
+  }, [webrtc.brokerKind, webrtc.localPeerId, webrtc.meshDiagnostics]);
 
   useEffect(() => {
     if (room?.status !== 'HIDING_PHASE' || !room.hidingEndsAt) {

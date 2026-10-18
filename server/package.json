@@ -11,13 +11,17 @@
     "test:referee:suite": "tsx gemini-referee/_testReferee.ts",
     "test:referee:svgs": "tsx gemini-referee/_verifySvgs.ts",
     "test:referee:fixtures": "tsx gemini-referee/_fetchFixtures.ts && tsx gemini-referee/_makeCheatFixture.ts",
-    "simulate": "tsx src/_simulateGame.ts"
+    "simulate": "tsx src/_simulateGame.ts",
+    "test:rtc": "tsx --test ../frontend/src/hooks/rtcConnection.test.ts",
+    "test:unit": "tsx --test src/gameMode.test.ts ../frontend/src/hooks/rtcConnection.test.ts",
+    "measure:picker": "tsx src/data/_measurePicker.ts"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "peer": "^1.0.2",
     "socket.io": "^4.8.4",
     "spotle.ink": "file:..",
     "tsx": "^4.19.2"
@@ -27,6 +31,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.0",
     "@types/pngjs": "^6.0.5",
+    "@types/ws": "^8.18.2",
     "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
     "socket.io-client": "^4.8.4",

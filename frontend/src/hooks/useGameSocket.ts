@@ -17,18 +17,9 @@ import type {
   ServerToClientEvents,
   VerdictEvent,
 } from '@shared/game';
+import { serverUrl } from '../utils/serverUrl';
 
 type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
-
-/** Where the game server lives, as seen from the browser. */
-function serverUrl(): string | undefined {
-  const override = import.meta.env.VITE_SERVER_URL as string | undefined;
-  if (override) return override;
-  if (import.meta.env.DEV) {
-    return `${window.location.protocol}//${window.location.hostname}:3001`;
-  }
-  return undefined; // same-origin
-}
 
 export interface UseGameSocket {
   connected: boolean;
@@ -65,12 +56,7 @@ export function useGameSocket(): UseGameSocket {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In dev we talk to the game server directly rather than through the Vite
-    // proxy: the proxy handshakes fine over long-polling but fails the
-    // WebSocket upgrade, which both spams the console and leaves the game
-    // polling. The server sets CORS origin '*', so a direct connection is fine.
-    // In a production build the UI is served by the game server, so same-origin.
-    // Override for tunnels/LAN with VITE_SERVER_URL in frontend/.env.local.
+    // serverUrl() handles the dev/prod split; see utils/serverUrl.ts.
     const socket: GameSocket = io(serverUrl());
     socketRef.current = socket;
 

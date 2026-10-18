@@ -11,6 +11,9 @@
     "typecheck": "npm run typecheck --prefix server && npm run build --prefix frontend",
     "simulate": "npm run simulate --prefix server",
     "test:referee": "npm run test:referee --prefix server",
-    "test:referee:suite": "npm run test:referee:suite --prefix server"
+    "test:referee:suite": "npm run test:referee:suite --prefix server",
+    "test:rtc": "npm run test:rtc --prefix server",
+    "test:unit": "npm run test:unit --prefix server",
+    "measure:picker": "npm run measure:picker --prefix server"
   }
 }

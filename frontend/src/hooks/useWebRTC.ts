@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Peer, { type MediaConnection } from 'peerjs';
 import { captureVideoFrame, type CaptureFrameOptions } from '../utils/captureFrame';
+import { apiUrl, serverOrigin } from '../utils/serverUrl';
+import {
+  evaluatePair,
+  shouldKeepCall,
+  streamHasLiveTrack,
+  MAX_DIAL_ATTEMPTS,
+  WATCHDOG_INTERVAL_MS,
+  type CallOrigin,
+  type PairDiagnostics,
+  type PairState,
+  type TrackedCall,
+} from './rtcConnection';
 
 export type FacingMode = 'user' | 'environment';
 
@@ -40,16 +52,78 @@ const VIDEO_CONSTRAINTS = (facingMode: FacingMode): MediaTrackConstraints => ({
   frameRate: { ideal: 15, max: 24 },
 });
 
+interface RtcConfigResponse {
+  iceServers: RTCIceServer[];
+  peerPath: string | null;
+  hasTurn: boolean;
+}
+
 function stopStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
 /**
- * PeerJS mesh (2–4 players) + a single local camera track.
+ * iOS (and iPadOS pretending to be a Mac) needs its own remote-audio path.
+ * See the gain-stage comment further down for why.
+ */
+function isWebKitMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  if (/iP(hone|ad|od)/.test(ua)) return true;
+  // iPadOS 13+ reports as Macintosh; touch support is the usual tell.
+  return /Macintosh/.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document;
+}
+
+/**
+ * How much to amplify remote voices through the WebAudio stage on iOS.
+ * Only ever applied on top of the normal element playback, so it can make
+ * the call louder but never quieter.
+ */
+const IOS_REMOTE_GAIN = 2.5;
+
+/**
+ * Fetches ICE servers and the broker path from our server.
+ *
+ * Falls back to PeerJS's own defaults if the request fails, so a server
+ * hiccup degrades to the previous behaviour rather than killing the camera.
+ */
+async function loadRtcConfig(): Promise<RtcConfigResponse | null> {
+  try {
+    const res = await fetch(apiUrl('/api/rtc-config'), { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()) as RtcConfigResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** PeerJS options for our own broker, or the public cloud as a fallback. */
+function peerOptions(config: RtcConfigResponse | null, useOwnBroker: boolean) {
+  const iceServers = config?.iceServers;
+  const base = iceServers ? { config: { iceServers } } : {};
+
+  if (!useOwnBroker || !config?.peerPath) return base;
+
+  const origin = serverOrigin();
+  const secure = origin.protocol === 'https:';
+  const port = origin.port ? Number(origin.port) : secure ? 443 : 80;
+  return {
+    ...base,
+    host: origin.hostname,
+    port,
+    path: config.peerPath,
+    secure,
+  };
+}
+
+/**
+ * PeerJS mesh (2-4 players) + a single local camera track.
  *
  * Flip camera: stop the old track, then getUserMedia once, then
  * RTCRtpSender.replaceTrack() on every live call. Never keep two
  * camera streams open at the same time.
+ *
+ * Connection management (dial, glare, retry) lives in ./rtcConnection.
  */
 export function useWebRTC(options: {
   enabled: boolean;
@@ -80,24 +154,41 @@ export function useWebRTC(options: {
   const [isFlipping, setIsFlipping] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
   const [micAvailable, setMicAvailable] = useState(false);
+  const [brokerKind, setBrokerKind] = useState<'own' | 'cloud' | null>(null);
+  const [meshDiagnostics, setMeshDiagnostics] = useState<PairDiagnostics[]>([]);
   const videoEnabledRef = useRef(true);
 
   const localVideoEl = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const callsRef = useRef<Map<string, MediaConnection>>(new Map());
+  const callsRef = useRef<Map<string, TrackedCall>>(new Map());
   const remotePeersRef = useRef(remotePeers);
   const onPeerIdRef = useRef(onLocalPeerId);
   const localNameRef = useRef(localName);
   const localPlayerIdRef = useRef(localPlayerId);
   const facingRef = useRef<FacingMode>(INITIAL_FACING_MODE);
-  const fallbackTimersRef = useRef<number[]>([]);
   const remoteAudioRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  /** Per-peer dial bookkeeping, used by the watchdog. */
+  const knownSinceRef = useRef<Map<string, number>>(new Map());
+  const attemptsRef = useRef<Map<string, number>>(new Map());
+  const pairStateRef = useRef<Map<string, PairState>>(new Map());
+  const remoteMediaRef = useRef<Record<string, RemoteMedia>>({});
+  const rtcConfigRef = useRef<RtcConfigResponse | null>(null);
+  const usingOwnBrokerRef = useRef(true);
+  const brokerFallbackDoneRef = useRef(false);
+
+  /** iOS remote-audio gain stage. */
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainStageRef = useRef<Map<string, { src: MediaStreamAudioSourceNode; gain: GainNode }>>(
+    new Map(),
+  );
 
   remotePeersRef.current = remotePeers;
   onPeerIdRef.current = onLocalPeerId;
   localNameRef.current = localName;
   localPlayerIdRef.current = localPlayerId;
+  remoteMediaRef.current = remoteMedia;
 
   const attachLocalVideo = useCallback((stream: MediaStream) => {
     const el = localVideoEl.current;
@@ -136,8 +227,8 @@ export function useWebRTC(options: {
 
   const replaceVideoTrackOnCalls = useCallback(async (newTrack: MediaStreamTrack) => {
     const replacements: Promise<void>[] = [];
-    for (const call of callsRef.current.values()) {
-      const sender = call.peerConnection
+    for (const tracked of callsRef.current.values()) {
+      const sender = tracked.call.peerConnection
         ?.getSenders()
         .find((s) => s.track?.kind === 'video');
       if (sender) {
@@ -149,20 +240,30 @@ export function useWebRTC(options: {
 
   const rememberRemote = useCallback((peerId: string, stream: MediaStream) => {
     const match = remotePeersRef.current.find((p) => p.peerId === peerId);
-    setRemoteMedia((prev) => ({
-      ...prev,
-      [peerId]: {
-        playerId: match?.playerId ?? peerId,
+    setRemoteMedia((prev) => {
+      const existing = prev[peerId];
+      const next: RemoteMedia = {
+        // Identity can arrive after the media does - PeerJS signalling often
+        // beats the socket roster - so keep refreshing it from the roster
+        // rather than freezing whatever was known at the first frame.
+        playerId: match?.playerId ?? existing?.playerId ?? peerId,
         peerId,
-        name: match?.name ?? 'Player',
+        name: match?.name ?? existing?.name ?? 'Player',
         stream,
-      },
-    }));
+      };
+      if (
+        existing
+        && existing.stream === stream
+        && existing.playerId === next.playerId
+        && existing.name === next.name
+      ) {
+        return prev;
+      }
+      return { ...prev, [peerId]: next };
+    });
   }, []);
 
-  const dropRemote = useCallback((peerId: string) => {
-    callsRef.current.get(peerId)?.close();
-    callsRef.current.delete(peerId);
+  const forgetRemote = useCallback((peerId: string) => {
     setRemoteMedia((prev) => {
       if (!(peerId in prev)) return prev;
       const next = { ...prev };
@@ -171,65 +272,218 @@ export function useWebRTC(options: {
     });
   }, []);
 
+  /** Closes and forgets a pair's call without touching its retry budget. */
+  const teardownCall = useCallback((peerId: string) => {
+    const tracked = callsRef.current.get(peerId);
+    if (tracked) {
+      try {
+        tracked.call.close();
+      } catch {
+        /* already closed */
+      }
+      callsRef.current.delete(peerId);
+    }
+  }, []);
+
+  const dropRemote = useCallback(
+    (peerId: string) => {
+      teardownCall(peerId);
+      forgetRemote(peerId);
+    },
+    [forgetRemote, teardownCall],
+  );
+
+  /**
+   * Adopts a call as THE connection for a peer, resolving glare.
+   *
+   * When both sides dialled, both ends independently keep the call made by
+   * the smaller peer id (see shouldKeepCall), so exactly one connection
+   * survives per pair and the UI can never end up bound to the dead one.
+   */
+  const adoptCall = useCallback((call: MediaConnection, origin: CallOrigin): boolean => {
+    const peerId = call.peer;
+    const myId = peerRef.current?.id ?? '';
+    const existing = callsRef.current.get(peerId);
+
+    if (existing && existing.call !== call) {
+      if (!shouldKeepCall(origin, myId, peerId)) {
+        // The other side's call is the agreed winner; drop ours quietly.
+        try {
+          call.close();
+        } catch {
+          /* nothing to close */
+        }
+        return false;
+      }
+      try {
+        existing.call.close();
+      } catch {
+        /* already gone */
+      }
+    }
+
+    callsRef.current.set(peerId, { call, origin, startedAt: Date.now() });
+    return true;
+  }, []);
+
   const bindCall = useCallback(
-    (call: MediaConnection) => {
-      callsRef.current.set(call.peer, call);
+    (call: MediaConnection, origin: CallOrigin) => {
+      if (!adoptCall(call, origin)) return;
+
       call.on('stream', (stream) => {
+        // Only trust the stream from the call we actually kept.
+        if (callsRef.current.get(call.peer)?.call !== call) return;
         stream.getVideoTracks().forEach((track) => {
           track.onunmute = () => rememberRemote(call.peer, stream);
         });
         rememberRemote(call.peer, stream);
       });
-      call.on('close', () => dropRemote(call.peer));
-      call.on('error', (err) => {
-        console.warn('[webrtc] call error', call.peer, err);
+
+      call.on('close', () => {
+        if (callsRef.current.get(call.peer)?.call !== call) return;
         dropRemote(call.peer);
       });
+
+      call.on('error', (err) => {
+        console.warn('[webrtc] call error', call.peer, err);
+        if (callsRef.current.get(call.peer)?.call !== call) return;
+        dropRemote(call.peer);
+      });
+
+      // ICE failure is the signal the old code ignored. Clearing the call here
+      // lets the watchdog re-dial instead of leaving the pair dark forever.
+      const pc = call.peerConnection;
+      if (pc) {
+        pc.addEventListener('iceconnectionstatechange', () => {
+          if (callsRef.current.get(call.peer)?.call !== call) return;
+          if (pc.iceConnectionState === 'failed') {
+            console.warn('[webrtc] ice failed, will re-dial', call.peer);
+            dropRemote(call.peer);
+          }
+        });
+      }
     },
-    [dropRemote, rememberRemote],
+    [adoptCall, dropRemote, rememberRemote],
   );
 
-  const callRemoteIfNeeded = useCallback(
-    (remote: RemotePeer, peer: Peer) => {
-      if (!remote.peerId || remote.peerId === peer.id) return;
-      if (callsRef.current.has(remote.peerId)) return;
+  /** Opens a call to a peer. The caller has already decided this is wanted. */
+  const dialPeer = useCallback(
+    (remotePeerId: string) => {
+      const peer = peerRef.current;
+      const stream = streamRef.current;
+      if (!peer?.id || !stream || stream.getVideoTracks().length === 0) return;
+      if (remotePeerId === peer.id) return;
 
-      const openCall = () => {
-        const liveStream = streamRef.current;
-        const livePeer = peerRef.current;
-        if (!liveStream || liveStream.getVideoTracks().length === 0 || !livePeer?.id) {
-          fallbackTimersRef.current.push(
-            window.setTimeout(() => {
-              if (peerRef.current) {
-                callRemoteIfNeeded(remote, peerRef.current);
-              }
-            }, 250),
-          );
-          return;
-        }
-        if (callsRef.current.has(remote.peerId)) return;
-        const call = livePeer.call(remote.peerId, liveStream, {
+      teardownCall(remotePeerId);
+      attemptsRef.current.set(remotePeerId, (attemptsRef.current.get(remotePeerId) ?? 0) + 1);
+
+      try {
+        const call = peer.call(remotePeerId, stream, {
           metadata: { playerId: localPlayerIdRef.current, name: localNameRef.current },
         });
-        bindCall(call);
-      };
-
-      // Smaller ID calls first so a full room broadcast does not open two meshes.
-      if (peer.id.localeCompare(remote.peerId) <= 0) {
-        openCall();
-        return;
+        bindCall(call, 'outgoing');
+      } catch (err) {
+        console.warn('[webrtc] dial failed', remotePeerId, err);
       }
-
-      // If the other side never received our ID, call after a short wait.
-      fallbackTimersRef.current.push(window.setTimeout(openCall, 2000));
     },
-    [bindCall],
+    [bindCall, teardownCall],
   );
+
+  /* ------------------------------------------------------------------ */
+  /* Camera + peer lifecycle                                            */
+  /* ------------------------------------------------------------------ */
 
   useEffect(() => {
     if (!enabled) return;
 
     let cancelled = false;
+
+    /** Creates a Peer, falling back to the public broker once if ours fails. */
+    function createPeer(useOwnBroker: boolean) {
+      usingOwnBrokerRef.current = useOwnBroker;
+      const peer = new Peer(peerOptions(rtcConfigRef.current, useOwnBroker) as never);
+      peerRef.current = peer;
+      setBrokerKind(useOwnBroker && rtcConfigRef.current?.peerPath ? 'own' : 'cloud');
+
+      peer.on('open', (id) => {
+        if (cancelled) return;
+        setLocalPeerId(id);
+        setError(null);
+        onPeerIdRef.current?.(id);
+        // The watchdog does the actual dialling from here.
+      });
+
+      peer.on('call', (call) => {
+        const live = streamRef.current;
+        if (!live || live.getVideoTracks().length === 0) {
+          // Our camera is not up yet. Answer as soon as it is rather than
+          // dropping the call - the peer has no way to know to retry.
+          const waitForCamera = window.setInterval(() => {
+            const readyStream = streamRef.current;
+            if (cancelled) {
+              window.clearInterval(waitForCamera);
+              call.close();
+              return;
+            }
+            if (readyStream && readyStream.getVideoTracks().length > 0) {
+              window.clearInterval(waitForCamera);
+              call.answer(readyStream);
+              bindCall(call, 'incoming');
+            }
+          }, 250);
+          window.setTimeout(() => window.clearInterval(waitForCamera), 10_000);
+          return;
+        }
+        call.answer(live);
+        bindCall(call, 'incoming');
+      });
+
+      peer.on('error', (err) => {
+        if (cancelled) return;
+        const type = (err as { type?: string }).type;
+
+        // "That peer is not online yet" is normal while a room fills up. The
+        // watchdog retries, so it must not clear state or alarm the user -
+        // the old code surfaced it as a camera error AND left a dead entry in
+        // the call map that blocked every later attempt to reach that player.
+        if (type === 'peer-unavailable') {
+          const match = /([A-Za-z0-9_-]{6,})/.exec(err.message ?? '');
+          if (match) teardownCall(match[1]!);
+          return;
+        }
+
+        // Our own broker is unreachable or unhappy: fall back to the PeerJS
+        // cloud once, so the worst case is the behaviour we had before.
+        const brokerProblem =
+          type === 'server-error'
+          || type === 'socket-error'
+          || type === 'socket-closed'
+          || type === 'network';
+        if (brokerProblem && usingOwnBrokerRef.current && !brokerFallbackDoneRef.current) {
+          brokerFallbackDoneRef.current = true;
+          console.warn('[webrtc] own broker failed, falling back to PeerJS cloud:', err.message);
+          try {
+            peer.destroy();
+          } catch {
+            /* already dead */
+          }
+          callsRef.current.clear();
+          attemptsRef.current.clear();
+          setRemoteMedia({});
+          createPeer(false);
+          return;
+        }
+
+        console.warn('[webrtc] peer error', type, err.message);
+        setError(err.message || 'WebRTC connection error.');
+      });
+
+      peer.on('disconnected', () => {
+        if (!cancelled && !peer.destroyed) {
+          peer.reconnect();
+        }
+      });
+    }
 
     async function start() {
       setError(null);
@@ -238,6 +492,22 @@ export function useWebRTC(options: {
         setError('This browser does not support camera access. Please use Chrome or Edge on localhost.');
         return;
       }
+
+      // Create the AudioContext BEFORE getUserMedia. On iOS this is reported
+      // to matter for whether remote audio ends up audible at all.
+      if (isWebKitMobile() && !audioCtxRef.current) {
+        try {
+          const Ctor = window.AudioContext
+            || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          if (Ctor) audioCtxRef.current = new Ctor();
+        } catch {
+          /* no WebAudio; element playback still applies */
+        }
+      }
+
+      // Ask the server which ICE servers and broker to use. Never fatal.
+      rtcConfigRef.current = await loadRtcConfig();
+      if (cancelled) return;
 
       try {
         // Ask for mic + camera together (one getUserMedia call - a second
@@ -257,10 +527,14 @@ export function useWebRTC(options: {
           });
         }
 
-        // iOS routes WebRTC audio to the earpiece ("call mode") unless told
-        // otherwise, which makes everyone sound faint. Safari 17+ exposes
-        // audioSession; 'play-and-record' is the correct category for voice
-        // chat and routes to the loudspeaker. Harmless where unsupported.
+        // iOS puts the page into a "call" audio session as soon as a mic is
+        // live, which routes playback to the EARPIECE and is why voice chat
+        // sounds faint on a phone. audioSession is the only lever the web
+        // platform exposes, and it is not enough on its own: every category
+        // that permits recording defaults to the receiver, and there is no
+        // web equivalent of AVAudioSession's defaultToSpeaker. Kept because
+        // it is harmless and correct, but the thing that actually raises the
+        // volume is the WebAudio gain stage further down.
         try {
           const audioSession = (navigator as unknown as {
             audioSession?: { type: string };
@@ -285,52 +559,7 @@ export function useWebRTC(options: {
         setLocalStream(stream);
         attachLocalVideo(stream);
 
-        const peer = new Peer({
-          debug: 1,
-        });
-        peerRef.current = peer;
-
-        peer.on('open', (id) => {
-          if (cancelled) return;
-          setLocalPeerId(id);
-          onPeerIdRef.current?.(id);
-          for (const remote of remotePeersRef.current) {
-            callRemoteIfNeeded(remote, peer);
-          }
-        });
-
-        peer.on('call', (call) => {
-          const live = streamRef.current;
-          if (!live || live.getVideoTracks().length === 0) {
-            window.setTimeout(() => {
-              const readyStream = streamRef.current;
-              if (readyStream && readyStream.getVideoTracks().length > 0) {
-                call.answer(readyStream);
-                bindCall(call);
-                return;
-              }
-              call.close();
-            }, 250);
-            return;
-          }
-          call.answer(live);
-          bindCall(call);
-        });
-
-        peer.on('error', (err) => {
-          if (cancelled) return;
-          if (err.type === 'peer-unavailable') {
-            setError('That Peer ID is not online yet. Ask them to start their camera, then connect again.');
-            return;
-          }
-          setError(err.message || 'WebRTC connection error.');
-        });
-
-        peer.on('disconnected', () => {
-          if (!cancelled && !peer.destroyed) {
-            peer.reconnect();
-          }
-        });
+        createPeer(true);
       } catch (err) {
         if (cancelled) return;
         const message =
@@ -347,12 +576,18 @@ export function useWebRTC(options: {
 
     return () => {
       cancelled = true;
-      fallbackTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-      fallbackTimersRef.current = [];
-      for (const call of callsRef.current.values()) {
-        call.close();
+      for (const tracked of callsRef.current.values()) {
+        try {
+          tracked.call.close();
+        } catch {
+          /* already closed */
+        }
       }
       callsRef.current.clear();
+      knownSinceRef.current.clear();
+      attemptsRef.current.clear();
+      pairStateRef.current.clear();
+      brokerFallbackDoneRef.current = false;
       peerRef.current?.destroy();
       peerRef.current = null;
       stopStream(streamRef.current);
@@ -360,21 +595,125 @@ export function useWebRTC(options: {
       setLocalStream(null);
       setLocalPeerId(null);
       setRemoteMedia({});
+      setBrokerKind(null);
+      setMeshDiagnostics([]);
     };
-  }, [enabled, attachLocalVideo, bindCall, callRemoteIfNeeded]);
+  }, [enabled, attachLocalVideo, bindCall, teardownCall]);
+
+  /* ------------------------------------------------------------------ */
+  /* Watchdog: the thing that makes a partial mesh heal itself          */
+  /* ------------------------------------------------------------------ */
+
+  // Record when each peer first appeared, so the polite wait has a baseline.
+  useEffect(() => {
+    const known = knownSinceRef.current;
+    const now = Date.now();
+    const live = new Set<string>();
+    for (const remote of remotePeers) {
+      if (!remote.peerId) continue;
+      live.add(remote.peerId);
+      if (!known.has(remote.peerId)) known.set(remote.peerId, now);
+    }
+    // Forget players who left, and tear down their calls.
+    for (const peerId of [...known.keys()]) {
+      if (!live.has(peerId)) {
+        known.delete(peerId);
+        attemptsRef.current.delete(peerId);
+        pairStateRef.current.delete(peerId);
+        dropRemote(peerId);
+      }
+    }
+  }, [remotePeers, dropRemote]);
 
   useEffect(() => {
-    const peer = peerRef.current;
-    const stream = streamRef.current;
-    if (!enabled || !peer?.id || !stream) return;
-    for (const remote of remotePeers) {
-      callRemoteIfNeeded(remote, peer);
-    }
-  }, [enabled, remotePeers, localPeerId, callRemoteIfNeeded]);
+    if (!enabled) return;
+
+    const tick = () => {
+      const peer = peerRef.current;
+      if (!peer?.id || !streamRef.current) return;
+
+      const now = Date.now();
+      const diagnostics: PairDiagnostics[] = [];
+
+      for (const remote of remotePeersRef.current) {
+        if (!remote.peerId || remote.peerId === peer.id) continue;
+
+        const tracked = callsRef.current.get(remote.peerId) ?? null;
+        const media = remoteMediaRef.current[remote.peerId];
+        const hasVideo = media ? streamHasLiveTrack(media.stream, 'video') : false;
+        const hasAudio = media ? streamHasLiveTrack(media.stream, 'audio') : false;
+        const iceState = tracked?.call.peerConnection?.iceConnectionState ?? null;
+        const attempts = attemptsRef.current.get(remote.peerId) ?? 0;
+
+        const { action, reason } = evaluatePair({
+          now,
+          localPeerId: peer.id,
+          remotePeerId: remote.peerId,
+          knownSince: knownSinceRef.current.get(remote.peerId) ?? now,
+          tracked: tracked ? { origin: tracked.origin, startedAt: tracked.startedAt } : null,
+          hasLiveMedia: hasVideo,
+          iceState,
+          attempts,
+        });
+
+        let state: PairState = hasVideo ? 'live' : tracked ? 'dialling' : 'idle';
+        if (action === 'dial' || action === 'redial') {
+          if (action === 'redial') {
+            console.warn(
+              `[webrtc] re-dialling ${remote.peerId} (${reason}), attempt ${attempts + 1}`,
+            );
+            state = 'retrying';
+          }
+          dialPeer(remote.peerId);
+        } else if (reason === 'exhausted') {
+          state = 'exhausted';
+        }
+
+        pairStateRef.current.set(remote.peerId, state);
+        diagnostics.push({
+          peerId: remote.peerId,
+          state,
+          attempts: attemptsRef.current.get(remote.peerId) ?? 0,
+          iceState,
+          hasVideo,
+          hasAudio,
+        });
+      }
+
+      setMeshDiagnostics((prev) => {
+        const same =
+          prev.length === diagnostics.length
+          && prev.every((row, i) => {
+            const next = diagnostics[i]!;
+            return (
+              row.peerId === next.peerId
+              && row.state === next.state
+              && row.attempts === next.attempts
+              && row.iceState === next.iceState
+              && row.hasVideo === next.hasVideo
+              && row.hasAudio === next.hasAudio
+            );
+          });
+        return same ? prev : diagnostics;
+      });
+    };
+
+    // Run once promptly so the first dial is not delayed a whole interval.
+    const kickoff = window.setTimeout(tick, 150);
+    const interval = window.setInterval(tick, WATCHDOG_INTERVAL_MS);
+    return () => {
+      window.clearTimeout(kickoff);
+      window.clearInterval(interval);
+    };
+  }, [enabled, dialPeer, localPeerId]);
 
   useEffect(() => {
     if (localStream) attachLocalVideo(localStream);
   }, [localStream, attachLocalVideo]);
+
+  /* ------------------------------------------------------------------ */
+  /* Camera flip                                                        */
+  /* ------------------------------------------------------------------ */
 
   const flipCamera = useCallback(async () => {
     const current = streamRef.current;
@@ -439,6 +778,10 @@ export function useWebRTC(options: {
     }
   }, [attachLocalVideo, isFlipping, replaceVideoTrackOnCalls]);
 
+  /* ------------------------------------------------------------------ */
+  /* Microphone                                                         */
+  /* ------------------------------------------------------------------ */
+
   /**
    * Flips the user's mic preference. It does not touch tracks directly - the
    * effects below are the single writer, so the preference and the master
@@ -448,10 +791,10 @@ export function useWebRTC(options: {
     setMicEnabled((on) => !on);
   }, []);
 
-  const setVideoEnabled = useCallback((enabled: boolean) => {
-    videoEnabledRef.current = enabled;
+  const setVideoEnabled = useCallback((nextEnabled: boolean) => {
+    videoEnabledRef.current = nextEnabled;
     streamRef.current?.getVideoTracks().forEach((track) => {
-      track.enabled = enabled;
+      track.enabled = nextEnabled;
     });
   }, []);
 
@@ -479,6 +822,10 @@ export function useWebRTC(options: {
     }
   }, [voiceEnabled, remoteMedia]);
 
+  /* ------------------------------------------------------------------ */
+  /* Remote audio playback                                              */
+  /* ------------------------------------------------------------------ */
+
   /**
    * Play remote audio through dedicated HTMLAudioElements rather than the
    * <video> tiles.
@@ -489,6 +836,10 @@ export function useWebRTC(options: {
    * tile's play() was being rejected and silently swallowed - you saw video
    * but heard nothing. These elements live outside React's tree, survive
    * every view change, and are retried on the first user gesture.
+   *
+   * Chromium additionally needs a remote stream attached to a media element
+   * for it to be audible at all, so this element stays the primary path on
+   * every platform.
    */
   useEffect(() => {
     const els = remoteAudioRef.current;
@@ -518,9 +869,72 @@ export function useWebRTC(options: {
     }
   }, [remoteMedia]);
 
-  // Mobile browsers only allow unmuted playback to start from a gesture.
+  /**
+   * iOS only: ALSO play remote audio through a WebAudio gain stage.
+   *
+   * On iOS a page holding a live microphone is placed in a recording audio
+   * session, and that session routes playback to the earpiece at call volume.
+   * Nothing the web platform exposes changes the route: `audioSession` picks
+   * the category, but every category that allows recording defaults to the
+   * receiver and `defaultToSpeaker` has no web equivalent. The workaround
+   * reported repeatedly against WebKit bugs 230902 / 198545 / 202405 is to
+   * run the remote track through an AudioContext, which several developers
+   * specifically credit with fixing low remote volume on iOS devices.
+   *
+   * This is deliberately ADDITIVE and iOS-only. The HTMLAudioElement above
+   * keeps playing on every platform, so if the WebAudio path turns out to be
+   * silent on some iOS version - a long-standing Safari bug with
+   * MediaStreamAudioSourceNode fed from a remote peer connection - the call
+   * is no quieter than before. It can only add volume. Running it on desktop
+   * as well would double every voice, so it is gated.
+   */
+  useEffect(() => {
+    if (!isWebKitMobile()) return;
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+
+    const stage = gainStageRef.current;
+
+    for (const [peerId, media] of Object.entries(remoteMedia)) {
+      if (stage.has(peerId)) continue;
+      if (media.stream.getAudioTracks().length === 0) continue;
+      try {
+        const src = ctx.createMediaStreamSource(media.stream);
+        const gain = ctx.createGain();
+        gain.gain.value = voiceEnabled ? IOS_REMOTE_GAIN : 0;
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        stage.set(peerId, { src, gain });
+      } catch (err) {
+        console.warn('[webrtc] ios gain stage unavailable', err);
+      }
+    }
+
+    for (const [peerId, nodes] of [...stage.entries()]) {
+      if (!remoteMedia[peerId]) {
+        try {
+          nodes.src.disconnect();
+          nodes.gain.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+        stage.delete(peerId);
+      }
+    }
+  }, [remoteMedia, voiceEnabled]);
+
+  // Keep the gain stage in step with the master voice switch.
+  useEffect(() => {
+    for (const nodes of gainStageRef.current.values()) {
+      nodes.gain.gain.value = voiceEnabled ? IOS_REMOTE_GAIN : 0;
+    }
+  }, [voiceEnabled]);
+
+  // Mobile browsers only allow unmuted playback to start from a gesture, and
+  // an AudioContext created before any gesture starts out suspended.
   useEffect(() => {
     const retry = () => {
+      void audioCtxRef.current?.resume().catch(() => {});
       for (const el of remoteAudioRef.current.values()) {
         void el.play().catch(() => {});
       }
@@ -533,24 +947,34 @@ export function useWebRTC(options: {
     };
   }, []);
 
-  // Stop every remote audio element when the hook tears down.
+  // Stop every remote audio element and gain node when the hook tears down.
   useEffect(() => {
     const els = remoteAudioRef.current;
+    const stage = gainStageRef.current;
     return () => {
       for (const el of els.values()) {
         el.pause();
         el.srcObject = null;
       }
       els.clear();
+      for (const nodes of stage.values()) {
+        try {
+          nodes.src.disconnect();
+          nodes.gain.disconnect();
+        } catch {
+          /* already disconnected */
+        }
+      }
+      stage.clear();
     };
   }, []);
 
-  const captureJpeg = useCallback((options: CaptureFrameOptions = {}) => {
+  const captureJpeg = useCallback((captureOptions: CaptureFrameOptions = {}) => {
     const video = localVideoEl.current;
     if (!video) {
       throw new Error('Local video is not mounted.');
     }
-    return captureVideoFrame(video, options);
+    return captureVideoFrame(video, captureOptions);
   }, []);
 
   return {
@@ -569,5 +993,10 @@ export function useWebRTC(options: {
     setVideoEnabled,
     flipCamera,
     captureJpeg,
+    /** Which signalling broker is in use: our server, or the PeerJS cloud. */
+    brokerKind,
+    /** Per-peer connection health, for in-app mesh diagnostics. */
+    meshDiagnostics,
+    maxDialAttempts: MAX_DIAL_ATTEMPTS,
   };
 }

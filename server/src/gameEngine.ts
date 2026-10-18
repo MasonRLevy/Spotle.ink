@@ -14,6 +14,7 @@ import type {
 import { isHideAndSeekMode, isPlayerHuntMode, pointsForPlacement } from '../../shared/game.js';
 import { verifyHideAndSeekTag, verifyObjectHunt, verifyObjectPhoto, verifyPlayerHunt } from '../gemini-referee/geminiReferee.js';
 import {
+  findItemByRef,
   MASTER_ITEM_DATABASE,
   pickRoundTarget,
   prepareUsedObjectsForNextRound,
@@ -229,15 +230,23 @@ export function beginRound(io: GameServer, room: RoomState, roundNumber: number)
 
   // null theme = no filter; draw from the whole database.
   const theme = room.settings.theme;
-  const forcedId = process.env.SPOTLE_FORCE_TARGET?.trim();
-  // Resolve the override separately: `(forcedId && find(...)) ?? fallback`
+  const forcedRef = process.env.SPOTLE_FORCE_TARGET?.trim();
+  // Resolve the override separately: `(forcedRef && find(...)) ?? fallback`
   // yields '' when the env var is set but empty, because ?? only catches
   // null/undefined - which then blew up on pick.id.
-  const forced = forcedId
-    ? MASTER_ITEM_DATABASE.find(
-        (item) => item.id === forcedId && (!theme || item.themes.includes(theme)),
-      )
-    : undefined;
+  // Matching is by id, name or alias (see findItemByRef), and honours the
+  // room's theme the same way an unforced pick would. Exact-id-only matching
+  // failed silently: the documented `SPOTLE_FORCE_TARGET=hammer` resolved to
+  // nothing while round targets lived only in the core list, so the server
+  // drew a random item and npm run simulate failed in a way that looked like
+  // a referee bug. Say so out loud instead.
+  const forced = forcedRef ? findItemByRef(forcedRef, theme) : null;
+  if (forcedRef && !forced) {
+    console.warn(
+      `[gameEngine] SPOTLE_FORCE_TARGET="${forcedRef}" matches no item id, name or alias`
+        + `${theme ? ` in theme ${theme}` : ''} - drawing a random target instead.`,
+    );
+  }
   room.usedObjects = prepareUsedObjectsForNextRound(theme, room.usedObjects);
 
   const pick = forced ?? pickRoundTarget(room.usedObjects, theme);
@@ -508,6 +517,44 @@ export async function handleTagAttempt(
       broadcastRoom(io, room);
     }
   }, COOLDOWN_MS);
+}
+
+/**
+ * Re-checks whether a round can end, after the set of players changed.
+ *
+ * Needed because a disconnect removes a player outright. If the leaver was
+ * the last one still hunting, everyone REMAINING is already settled but
+ * nothing re-evaluated that, so the round sat there until the 90s round timer
+ * fired - a minute and a half of dead air in front of whoever is watching.
+ * Hide-and-seek is handled separately: there, losing players changes who has
+ * won rather than whether the round is over.
+ */
+export function reconcileAfterPlayerLeft(io: GameServer, room: RoomState): void {
+  if (Object.keys(room.players).length === 0) return;
+
+  if (isHideAndSeekMode(room.settings.mode)) {
+    if (room.status !== 'HUNTING') return;
+    const players = Object.values(room.players);
+    const seekerGone = !players.some((player) => player.role === 'SEEKER');
+    const remainingHiders = players.filter(
+      (player) => player.role === 'HIDER' && !player.isCaught,
+    ).length;
+    // No seeker left to find anyone, or nobody left to find.
+    if (seekerGone) finishHideAndSeek(io, room, 'HIDERS');
+    else if (remainingHiders === 0) finishHideAndSeek(io, room, 'SEEKER');
+    return;
+  }
+
+  if (room.status === 'HUNTING') {
+    endRound(io, room);
+    return;
+  }
+
+  // The selfie gate counts submissions across the room, so a player leaving
+  // during registration can be what completes it.
+  if (room.status === 'SELFIE_REGISTRATION') {
+    maybeStartMeRound(io, room);
+  }
 }
 
 export function giveUpPlayer(io: GameServer, room: RoomState, playerId: string): void {
