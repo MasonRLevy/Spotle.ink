@@ -203,13 +203,34 @@
         results.innerHTML = '';
         verdictEl.innerHTML = '';
 
+        // This page must be SERVED by the game server - a relative fetch
+        // cannot resolve from a file:// or data: URL, and the browser's own
+        // error for that ("Failed to parse URL") sends you looking for a
+        // bug that is not there.
+        if (!/^https?:$/.test(location.protocol)) {
+          verdictEl.className = 'verdict bad';
+          verdictEl.innerHTML =
+            'Open this page <strong>from the running server</strong>, not as a local file.<br>' +
+            'Locally: <code>http://localhost:3001/rtc-check/</code><br>' +
+            'Deployed: <code>https://spotle.ink/rtc-check/</code><br>' +
+            '<span style="color:var(--muted)">(it needs to read /api/rtc-config from the server, which a ' +
+            location.protocol + ' page cannot do)</span>';
+          runBtn.disabled = false;
+          runBtn.textContent = 'Run check';
+          return;
+        }
+
         let config;
         try {
-          const res = await fetch('/api/rtc-config', { cache: 'no-store' });
+          const res = await fetch(new URL('/api/rtc-config', location.origin), { cache: 'no-store' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
           config = await res.json();
         } catch (e) {
           verdictEl.className = 'verdict bad';
-          verdictEl.textContent = 'Could not reach /api/rtc-config: ' + e.message;
+          verdictEl.innerHTML =
+            'Could not read /api/rtc-config from ' + location.origin + ': ' + e.message +
+            '<br><span style="color:var(--muted)">If this is the live site, the server may not have ' +
+            'this build deployed yet.</span>';
           runBtn.disabled = false;
           runBtn.textContent = 'Run check';
           return;
