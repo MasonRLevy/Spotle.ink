@@ -112,6 +112,76 @@ const CORE_ITEM_DATABASE: ScavengerItem[] = [
     aliases: ['bike', 'e-scooter', 'bicycle'],
     cheatRisks: ['picture of a bike on a screen'],
   },
+
+  /* --- More UF / Swamp targets ---------------------------------------
+   * UF_SWAMP is the signature theme for SwampHacks but had only 9 items
+   * for a 10-round game, so a themed demo was guaranteed to repeat. These
+   * are a deliberate mix of indoor (a hackathon venue is indoors) and
+   * campus-outdoor so the theme works wherever players actually are.
+   */
+  {
+    id: 'uf-textbook',
+    name: 'Textbook or Course Notes',
+    themes: ['UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '📚',
+    aliases: ['textbook', 'course notes', 'lecture notes', 'course packet'],
+    cheatRisks: ['a pdf of a textbook open on a screen'],
+  },
+  {
+    id: 'uf-reitz-union',
+    name: 'Reitz Union',
+    themes: ['UF_SWAMP'],
+    difficulty: 'HARD',
+    emoji: '🏛️',
+    aliases: ['reitz', 'reitz union', 'student union'],
+    cheatRisks: ['campus map or webpage screenshot'],
+  },
+  {
+    id: 'uf-brick-building',
+    name: 'Red Brick Campus Building',
+    themes: ['UF_SWAMP', 'OUTDOORS'],
+    difficulty: 'EASY',
+    emoji: '🧱',
+    aliases: ['brick building', 'red brick wall', 'collegiate gothic building'],
+    cheatRisks: ['stock photo of a campus'],
+  },
+  {
+    id: 'uf-campus-bus',
+    name: 'RTS Campus Bus',
+    themes: ['UF_SWAMP', 'OUTDOORS'],
+    difficulty: 'MEDIUM',
+    emoji: '🚌',
+    aliases: ['campus bus', 'rts bus', 'shuttle', 'bus stop sign'],
+    cheatRisks: ['bus tracker app on a phone screen'],
+  },
+  {
+    id: 'uf-bottle-filler',
+    name: 'Water Bottle Refill Station',
+    themes: ['UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '🚰',
+    aliases: ['bottle filler', 'water fountain', 'refill station', 'drinking fountain'],
+    cheatRisks: ['product listing on a screen'],
+  },
+  {
+    id: 'uf-palm-tree',
+    name: 'Campus Palm Tree',
+    themes: ['UF_SWAMP', 'OUTDOORS'],
+    difficulty: 'EASY',
+    emoji: '🌴',
+    aliases: ['palm tree', 'palm', 'campus tree'],
+    cheatRisks: ['a tropical wallpaper on a screen'],
+  },
+  {
+    id: 'uf-dorm-door',
+    name: 'Dorm Room Door or Key Card',
+    themes: ['UF_SWAMP'],
+    difficulty: 'EASY',
+    emoji: '🚪',
+    aliases: ['dorm door', 'room key card', 'residence hall door', 'key fob'],
+    cheatRisks: ['a digital key in a phone wallet'],
+  },
 ];
 
 const HACKATHON_ITEM_IDS = new Set([
@@ -220,10 +290,20 @@ function convertLegacyItem(item: FindableObject): ScavengerItem {
     difficulty: item.difficulty,
     emoji: item.emoji,
     aliases,
-    cheatRisks: [
-      'a picture of the object displayed on a phone or computer screen',
-      'a printed picture instead of the real object',
-    ],
+    // DELIBERATELY EMPTY. cheatRisks is pasted into the referee prompt as
+    // "Item-specific screen/photo cheat risks to check: ...", so a generic
+    // risk primes the model to doubt every clean photo. The two generic
+    // lines that used to be here ("a picture of the object displayed on a
+    // phone or computer screen", "a printed picture instead of the real
+    // object") did exactly that: measured over 5 trials each on the same
+    // real hammer photo, the referee accepted it 5/5 with no cheatRisks and
+    // 5/5 with a specific one, but 0/5 with those generic lines - and
+    // falsely called it a screen cheat all five times ("clearly a stock
+    // photo, not a real hammer in your hand"). That applied to 133 of the
+    // 145 items in the pool. The system prompt already handles screen-cheat
+    // detection; only add a risk here when it is genuinely item-specific,
+    // as the hand-written core items do. See gemini-referee/_abCheatRisks.ts.
+    cheatRisks: [],
   };
 }
 

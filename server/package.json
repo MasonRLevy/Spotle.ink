@@ -13,7 +13,7 @@
     "test:referee:fixtures": "tsx gemini-referee/_fetchFixtures.ts && tsx gemini-referee/_makeCheatFixture.ts",
     "simulate": "tsx src/_simulateGame.ts",
     "test:rtc": "tsx --test ../frontend/src/hooks/rtcConnection.test.ts",
-    "test:unit": "tsx --test src/gameMode.test.ts ../frontend/src/hooks/rtcConnection.test.ts",
+    "test:unit": "tsx --test src/gameMode.test.ts src/data/itemRegistry.test.ts ../frontend/src/hooks/rtcConnection.test.ts",
     "measure:picker": "tsx src/data/_measurePicker.ts"
   },
   "dependencies": {

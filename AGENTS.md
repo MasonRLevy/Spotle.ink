@@ -21,8 +21,9 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** 2026-10-17 (later)
+* **Last Updated:** 2026-10-17 (quality pass: self-hosted PeerJS broker, mesh watchdog, server-side ICE config, cheatRisks false-positive fix)
 * **LIVE AT https://spotle.ink** (Render). Every push to `main` auto-deploys, so never push mid-demo - a redeploy restarts the process and rooms are in memory.
+* **Voice chat on iPhone is still unverified.** The earpiece-routing workaround (an iOS-only WebAudio gain stage on top of element playback) can only add volume, never remove it, but nobody has confirmed it on a real handset. Test before judging.
 * **ONE SERVER.** The three original backends were merged into `server/`. `backend/` is **deprecated and does not run** - see `backend/DEPRECATED.md`. Do not add features there.
 
 ### How to run
@@ -51,8 +52,8 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 ### Themes
 `ThemeType` = `UF_SWAMP` | `HACKATHON` | `GENERAL` | `OUTDOORS`, defined with icons in `GAME_THEMES` (`shared/game.ts`). The lobby Themes button opens the picker; the host's choice is host-only and lobby-only, stored on `room.settings.theme`, and only items whose `themes[]` contains it are drawn.
 
-### !! ITEM COUNTS ARE LOW - DEMO RISK !!
-`MASTER_ITEM_DATABASE` (`server/src/data/itemRegistry.ts`) combines the active targets with the converted legacy pool and currently holds **145 unique items**: UF_SWAMP 9, HACKATHON 51, GENERAL 134, OUTDOORS 15 (themes overlap). The themed picker cycles only after exhausting that theme's items, so a 10-round UF_SWAMP game can still repeat once. Keep adding correctly themed items if a theme has fewer than 10.
+### Item counts - now clear for a 10-round game
+`MASTER_ITEM_DATABASE` (`server/src/data/itemRegistry.ts`) combines the core hand-written targets with the converted legacy pool: **151 unique items** - UF_SWAMP 16, HACKATHON 51, GENERAL 133, OUTDOORS 18 (themes overlap). Every theme now has more than 10 items, so a 10-round themed game is repeat-free. UF_SWAMP was at 9 and has been topped up; the server prints the per-theme counts at boot and **warns if any theme drops below 10 again**, so keep an eye on that line.
 
 ### Item selection
 * No duplicates until a theme is exhausted, then the cycle restarts cleanly rather than letting `usedObjects` grow forever (which used to leave every later pick an unguarded random draw, causing A,B,A,B clustering).
@@ -60,6 +61,10 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 * Randomness comes from `crypto.randomInt`, not `Math.random` - no modulo bias and no shared pseudo-random sequence between rooms.
 * Measured over 500 simulated games per theme: 0 back-to-back repeats, and repeats per game exactly equal the unavoidable floor (`10 - poolSize`). **Any repeat you see now is a missing-items problem, not a picker problem.**
 * `unusedCount(theme, used)` is exported for callers that need to know whether a cycle is finished.
+* `findItemByRef(ref, theme)` resolves `SPOTLE_FORCE_TARGET` by id, name or alias and the server **warns loudly** when it matches nothing (it used to fall through to a random item in silence, which made `npm run simulate` fail in a way that looked like a referee bug).
+
+### !! cheatRisks is a loaded gun - keep it item-specific !!
+`ScavengerItem.cheatRisks` is pasted verbatim into the referee prompt as *"Item-specific screen/photo cheat risks to check: ..."*, so anything generic there primes Gemini to distrust **every** clean photo. The legacy converter briefly attached `"a picture of the object displayed on a phone or computer screen"` and `"a printed picture instead of the real object"` to all 133 bridged items. Measured on the same real hammer photo, 5 trials each: **5/5 accepted with no cheatRisks, 5/5 with a specific one, 0/5 with those generic lines** - and all five were falsely called screen cheats. Bridged items now ship `cheatRisks: []`; the system prompt already does screen-cheat detection on its own. Only add a risk here when it genuinely names how *that* item gets faked. Re-run the A/B with `npx tsx gemini-referee/_abCheatRisks.ts` if you change it.
 
 ### Shared legacy object pool
 `server/gemini-referee/objectPool.ts` (146 items with Fluent flat-SVG art) still backs `/api/referee/*` and the referee workbench. `server/src/data/itemRegistry.ts` also converts these records into the active round-target format, maps their old `HOME`/`UF` categories to current themes, and combines them with the core targets. `/api/health` still reports the legacy pool count.
@@ -77,6 +82,13 @@ Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `roun
 ### Gemini model - IMPORTANT
 `gemini-2.5-flash` is **dead** (404 "no longer available to new users"). Default is **`gemini-3.1-flash-lite`**, falling back to `gemini-3.8-flash` then `gemini-3.5-flash-lite` on 429/404/503. Override with `GEMINI_MODEL`. Key lives in `server/.env` (gitignored) and in Render's Environment tab.
 
+### WebRTC mesh - how players see each other
+* **We run our own PeerJS broker** at `/peerjs` (`ExpressPeerServer` in `server/src/index.ts`) instead of relying on PeerJS's shared public cloud, which is rate-limited and was a prime suspect for pairs that silently never connected. The client falls back to the public cloud if ours is unreachable, so the worst case is the old behaviour. `SPOTLE_DISABLE_PEER_SERVER=1` turns ours off entirely - that is the one-env-var rollback on Render.
+* **DO NOT mount a second WebSocket server naively.** `ws` with `{ server }` hijacks the HTTP server's `upgrade` event and destroys every upgrade it does not recognise, **including Socket.io's**. Doing that took the whole game down in testing: the host created a room, its socket was torn down immediately, the room was deleted as empty, and every join failed with "No room with that PIN". We pass `createWebSocketServer` a `noServer` instance and route upgrades ourselves. The broker's real WS path is `/peerjs/peerjs` and is logged at boot - do not hardcode it.
+* **ICE comes from the server**, `GET /api/rtc-config` (`server/src/rtcConfig.ts`): 3 STUN servers plus a TURN relay. Set `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` in Render to use a dedicated TURN - **strongly recommended before judging**, because the default is PeerJS's shared public relay on port 3478 only, with no TLS/443 fallback, and campus wifi commonly blocks that. That blocks exactly the pairs that need a relay while leaving the easy pairs working, which is the classic "I can see player 2 but not player 3".
+* **Connection policy lives in `frontend/src/hooks/rtcConnection.ts`** and is unit tested (`npm run test:rtc`). Glare: both ends independently keep the call dialled by the smaller peer id, so exactly one PeerConnection survives per pair without a round trip. A watchdog re-dials any pair with no media (ICE `failed`, or no stream within 8s), bounded to 8 attempts. The old code dialled once and left a dead entry in the call map that blocked every later attempt, so one unlucky moment at join time meant that pair stayed dark all game.
+* **Debugging a dark tile:** `GET /api/rooms/<pin>/debug` answers the server half (did everyone register a PeerJS id?). In the browser console, `__spotleMesh()` answers the client half (per-peer ICE state, whether video/audio are arriving, retry count, and which broker is in use).
+
 ### Camera / UI notes
 * Camera starts on the **selfie** lens (`INITIAL_FACING_MODE` in `useWebRTC.ts`); flip button switches to rear.
 * The lobby shows live unfiltered camera feeds. It is locked to the viewport on phones so nothing scrolls; from `sm:` up it takes natural height and tiles are full size, which can scroll on short laptop windows - that is deliberate.
@@ -87,13 +99,18 @@ Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `roun
 * `npm run simulate` - full 2-player game over real sockets
 * `npm run test:referee:suite` - 10-case AI referee suite
 * `SPOTLE_FORCE_TARGET=<item id> npm start` - pin the round target for a reproducible demo
+* `npm run test:unit` - fast node:test suites (game modes, item registry, WebRTC dial/glare/retry policy)
+* `npm run test:rtc` - just the WebRTC connection-policy tests
+* `npm run measure:picker` - 500 simulated games per theme; fails if any theme repeats above the unavoidable floor
+* `SPOTLE_FORCE_TARGET=hammer npm start` then `npm run simulate` - the simulation's fixtures are hammer photos, so the target must be pinned or it fails confusingly
 * `GET /api/rooms/<pin>/debug` - per-player PeerJS ids, for diagnosing camera mesh problems
+* `__spotleMesh()` in the browser console - per-peer ICE state and media, the client half of the same question
 
 ### App_Testing branch was reverted out of main
 The Capacitor mobile wrapper merge (`3a70f6d`) was reverted in `5a51d6e`, so `frontend/android`, `capacitor.config.ts` and the Capacitor deps are **not** on main. Git still considers App_Testing merged, so **merging it again brings in nothing** - whoever lands the mobile app must `git revert 5a51d6e` first, then merge.
 
 ### Current Focus
-Playable end to end and deployed, with voice chat. Highest value next: **more items in `MASTER_ITEM_DATABASE`** (see the demo-risk note above), then a global leaderboard.
+Playable end to end and deployed, with voice chat. The mesh now self-heals and every theme has enough items. Highest value next: **a dedicated TURN server** (set `TURN_URLS` - see the WebRTC section; this is the one remaining thing most likely to bite on venue wifi), then **real-device checks of iOS voice-chat volume**, then a global leaderboard.
 
 Project Info:
 SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)
