@@ -179,6 +179,7 @@ export function useWebRTC(options: {
   /** Per-peer dial bookkeeping, used by the watchdog. */
   const knownSinceRef = useRef<Map<string, number>>(new Map());
   const attemptsRef = useRef<Map<string, number>>(new Map());
+  const lastAttemptAtRef = useRef<Map<string, number>>(new Map());
   const pairStateRef = useRef<Map<string, PairState>>(new Map());
   const remoteMediaRef = useRef<Record<string, RemoteMedia>>({});
   const rtcConfigRef = useRef<RtcConfigResponse | null>(null);
@@ -381,6 +382,7 @@ export function useWebRTC(options: {
 
       teardownCall(remotePeerId);
       attemptsRef.current.set(remotePeerId, (attemptsRef.current.get(remotePeerId) ?? 0) + 1);
+      lastAttemptAtRef.current.set(remotePeerId, Date.now());
 
       try {
         const call = peer.call(remotePeerId, stream, {
@@ -593,6 +595,7 @@ export function useWebRTC(options: {
       callsRef.current.clear();
       knownSinceRef.current.clear();
       attemptsRef.current.clear();
+      lastAttemptAtRef.current.clear();
       pairStateRef.current.clear();
       peerRef.current?.destroy();
       peerRef.current = null;
@@ -625,6 +628,7 @@ export function useWebRTC(options: {
       if (!live.has(peerId)) {
         known.delete(peerId);
         attemptsRef.current.delete(peerId);
+        lastAttemptAtRef.current.delete(peerId);
         pairStateRef.current.delete(peerId);
         dropRemote(peerId);
       }
@@ -660,10 +664,15 @@ export function useWebRTC(options: {
           hasLiveMedia: hasVideo,
           iceState,
           attempts,
+          lastAttemptAt: lastAttemptAtRef.current.get(remote.peerId) ?? null,
         });
 
         let state: PairState = hasVideo ? 'live' : tracked ? 'dialling' : 'idle';
         if (action === 'dial' || action === 'redial') {
+          if (reason === 'retry-after-cooldown') {
+            // Fresh budget rather than a permanent write-off.
+            attemptsRef.current.set(remote.peerId, 0);
+          }
           if (action === 'redial') {
             console.warn(
               `[webrtc] re-dialling ${remote.peerId} (${reason}), attempt ${attempts + 1}`,

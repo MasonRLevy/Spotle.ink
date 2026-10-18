@@ -18,6 +18,7 @@ import {
   MAX_DIAL_ATTEMPTS,
   MEDIA_TIMEOUT_MS,
   POLITE_WAIT_MS,
+  RETRY_COOLDOWN_MS,
 } from './rtcConnection.js';
 
 const A = 'aaaa-1111';
@@ -150,15 +151,63 @@ test('a call that never delivers media is re-dialled', () => {
   assert.equal(stalled.reason, 'media-timeout');
 });
 
-test('retrying is bounded so a hopeless pair cannot spin forever', () => {
+test('retrying backs off once the quick budget is spent', () => {
   const result = evaluatePair({
     ...base,
     tracked: { origin: 'outgoing', startedAt: base.now - MEDIA_TIMEOUT_MS },
     iceState: 'failed',
     attempts: MAX_DIAL_ATTEMPTS,
+    lastAttemptAt: base.now - 1000,
   });
   assert.equal(result.action, 'wait');
   assert.equal(result.reason, 'exhausted');
+});
+
+test('a pair that spent its budget recovers after the cooldown', () => {
+  // The bug this covers: attempts were never reset, so a device that had a
+  // bad first 25 seconds stayed invisible to the whole room for the rest of
+  // the game even once its network recovered.
+  const result = evaluatePair({
+    ...base,
+    tracked: { origin: 'outgoing', startedAt: base.now - MEDIA_TIMEOUT_MS },
+    iceState: 'failed',
+    attempts: MAX_DIAL_ATTEMPTS,
+    lastAttemptAt: base.now - RETRY_COOLDOWN_MS,
+  });
+  assert.equal(result.action, 'redial');
+  assert.equal(result.reason, 'retry-after-cooldown');
+});
+
+test('a permanently broken pair keeps retrying slowly, not never', () => {
+  // Walk 10 minutes of watchdog ticks past the budget and confirm it keeps
+  // trying at the backed-off rate rather than going silent.
+  let attempts = MAX_DIAL_ATTEMPTS;
+  let lastAttemptAt = base.now;
+  let now = base.now;
+  let dials = 0;
+
+  for (let tick = 0; tick < 200; tick += 1) {
+    now += 3000; // watchdog interval
+    const { action, reason } = evaluatePair({
+      ...base,
+      now,
+      tracked: { origin: 'outgoing', startedAt: now - MEDIA_TIMEOUT_MS },
+      iceState: 'failed',
+      attempts,
+      lastAttemptAt,
+    });
+    if (action === 'redial' && reason === 'retry-after-cooldown') {
+      dials += 1;
+      attempts = 0; // caller resets the budget
+      lastAttemptAt = now;
+    } else if (action === 'redial' || action === 'dial') {
+      dials += 1;
+      attempts += 1;
+      lastAttemptAt = now;
+    }
+  }
+
+  assert.ok(dials > 20, `expected steady retries over 10 minutes, got ${dials}`);
 });
 
 test('a stalled pair recovers within the retry budget', () => {

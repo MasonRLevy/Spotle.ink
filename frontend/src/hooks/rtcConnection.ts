@@ -80,8 +80,21 @@ export const WATCHDOG_INTERVAL_MS = 3000;
  */
 export const MEDIA_TIMEOUT_MS = 8000;
 
-/** Give up re-dialling a pair after this many attempts. */
+/** Dial this many times in quick succession before backing off. */
 export const MAX_DIAL_ATTEMPTS = 8;
+
+/**
+ * After burning the quick-retry budget, wait this long and start again.
+ *
+ * Giving up permanently was wrong. A pair that fails its first 8 attempts -
+ * a phone that joined on a bad cell, a late camera permission, a momentary
+ * wifi drop - would stay dark for the entire game with no way back, because
+ * the attempt counter was only ever reset when somebody left the room. One
+ * unlucky device ended up the single player nobody could see, permanently,
+ * while everyone else was fine. Backing off and trying again costs one dial
+ * every 20s and makes that recoverable.
+ */
+export const RETRY_COOLDOWN_MS = 20_000;
 
 export type PairState =
   | 'idle'          // nothing tried yet
@@ -115,15 +128,23 @@ export function evaluatePair(input: {
   hasLiveMedia: boolean;
   iceState: string | null;
   attempts: number;
+  /** When we last dialled this peer, for the back-off below. */
+  lastAttemptAt?: number | null;
 }): { action: 'wait' | 'dial' | 'redial'; reason: string } {
   const {
     now, localPeerId, remotePeerId, knownSince, tracked, hasLiveMedia, iceState, attempts,
+    lastAttemptAt = null,
   } = input;
 
   if (hasLiveMedia && iceState !== 'failed' && iceState !== 'closed') {
     return { action: 'wait', reason: 'live' };
   }
   if (attempts >= MAX_DIAL_ATTEMPTS) {
+    // Backed off rather than given up: once the cooldown passes, start a
+    // fresh budget. The caller resets the counter when it sees this reason.
+    if (lastAttemptAt !== null && now - lastAttemptAt >= RETRY_COOLDOWN_MS) {
+      return { action: 'redial', reason: 'retry-after-cooldown' };
+    }
     return { action: 'wait', reason: 'exhausted' };
   }
 
