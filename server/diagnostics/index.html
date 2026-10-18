@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spotle · TURN check</title>
+    <style>
+      :root {
+        --bg: #11162a;
+        --card: #1b2240;
+        --ink: #eef1ff;
+        --muted: #9aa3c7;
+        --ok: #5ddf8f;
+        --warn: #ffc857;
+        --bad: #ff6b6b;
+        --line: #2c3660;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p.sub { color: var(--muted); margin: 0 0 16px; }
+      button {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #11162a;
+        background: var(--ok);
+        border: 0;
+        border-radius: 10px;
+      }
+      button[disabled] { opacity: .5; }
+      .verdict {
+        margin: 16px 0;
+        padding: 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        font-weight: 600;
+      }
+      .verdict.ok { border-color: var(--ok); color: var(--ok); }
+      .verdict.warn { border-color: var(--warn); color: var(--warn); }
+      .verdict.bad { border-color: var(--bad); color: var(--bad); }
+      .row {
+        padding: 12px;
+        margin-bottom: 8px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-left-width: 4px;
+        border-radius: 8px;
+        word-break: break-all;
+      }
+      .row.ok { border-left-color: var(--ok); }
+      .row.bad { border-left-color: var(--bad); }
+      .row.warn { border-left-color: var(--warn); }
+      .name { font-weight: 600; font-size: 14px; }
+      .detail { color: var(--muted); font-size: 13px; margin-top: 4px; }
+      .tag {
+        display: inline-block;
+        padding: 1px 7px;
+        margin-right: 5px;
+        border-radius: 99px;
+        font-size: 12px;
+        background: #2c3660;
+        color: var(--ink);
+      }
+      .tag.relay { background: var(--ok); color: #11162a; }
+      .tag.srflx { background: #5aa9ff; color: #11162a; }
+      footer { color: var(--muted); font-size: 13px; margin-top: 20px; }
+      code { background: #0d1124; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>TURN check</h1>
+    <p class="sub">
+      Run this on the device and network you will actually demo from. It asks
+      each configured ICE server for candidates and reports what came back.
+    </p>
+
+    <button id="run">Run check</button>
+    <div id="verdict"></div>
+    <div id="results"></div>
+
+    <footer>
+      <p>
+        <strong>relay</strong> = a TURN server answered and will carry media
+        when a direct path is impossible. This is the one that matters on
+        locked-down wifi. <strong>srflx</strong> = STUN worked, so most
+        networks will connect directly. <strong>host only</strong> = nothing
+        external answered.
+      </p>
+      <p>
+        No relay anywhere means some pairs of players will silently fail to
+        see each other. Fix by setting <code>TURN_CREDENTIAL_URL</code> (or
+        <code>TURN_URLS</code>) on the server — see <code>rtcConfig.ts</code>.
+      </p>
+    </footer>
+
+    <script>
+      const runBtn = document.getElementById('run');
+      const results = document.getElementById('results');
+      const verdictEl = document.getElementById('verdict');
+
+      /** Split the config into one entry per server so failures are isolated. */
+      function explode(iceServers) {
+        const out = [];
+        for (const server of iceServers) {
+          const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+          for (const url of urls) {
+            out.push({
+              url,
+              server: { ...server, urls: [url] },
+              isTurn: url.startsWith('turn:') || url.startsWith('turns:'),
+            });
+          }
+        }
+        return out;
+      }
+
+      /**
+       * Gathers candidates against ONE ice server.
+       *
+       * A TURN server that is blocked does not error - gathering just ends
+       * with no relay candidate. So the signal is which candidate TYPES
+       * appeared, not whether anything threw.
+       */
+      function gather(entry, timeoutMs) {
+        return new Promise((resolve) => {
+          let pc;
+          const types = new Set();
+          let error = null;
+
+          const finish = () => {
+            clearTimeout(timer);
+            try { pc && pc.close(); } catch (e) { /* already closed */ }
+            resolve({ ...entry, types: [...types], error });
+          };
+
+          const timer = setTimeout(finish, timeoutMs);
+
+          try {
+            pc = new RTCPeerConnection({
+              iceServers: [entry.server],
+              // Force the question "can this server relay?" to be answered on
+              // its own, instead of letting a host candidate satisfy it.
+              iceTransportPolicy: entry.isTurn ? 'relay' : 'all',
+            });
+          } catch (e) {
+            error = e.message;
+            return finish();
+          }
+
+          pc.onicecandidateerror = (ev) => {
+            // 701 is the generic "server unreachable / rejected" code.
+            if (!error && ev.errorCode) {
+              error = `ICE error ${ev.errorCode}${ev.errorText ? ': ' + ev.errorText : ''}`;
+            }
+          };
+
+          pc.onicecandidate = (ev) => {
+            if (!ev.candidate) return finish();
+            if (ev.candidate.type) types.add(ev.candidate.type);
+          };
+
+          pc.createDataChannel('probe');
+          pc.createOffer()
+            .then((offer) => pc.setLocalDescription(offer))
+            .catch((e) => { error = e.message; finish(); });
+        });
+      }
+
+      function render(entry) {
+        const relay = entry.types.includes('relay');
+        const srflx = entry.types.includes('srflx');
+        const good = entry.isTurn ? relay : srflx;
+
+        const div = document.createElement('div');
+        div.className = 'row ' + (good ? 'ok' : entry.isTurn ? 'bad' : 'warn');
+
+        const tags = entry.types.length
+          ? entry.types.map((t) => `<span class="tag ${t}">${t}</span>`).join('')
+          : '<span class="tag">host only</span>';
+
+        div.innerHTML =
+          `<div class="name">${entry.isTurn ? 'TURN' : 'STUN'} · ${entry.url}</div>` +
+          `<div class="detail">${tags}` +
+          (entry.error ? ` <br>${entry.error}` : '') +
+          (entry.isTurn && !relay ? ' <br>No relay candidate — this server is blocked or rejecting us.' : '') +
+          (!entry.isTurn && !srflx ? ' <br>No reflexive candidate — this STUN server did not answer.' : '') +
+          '</div>';
+        results.appendChild(div);
+      }
+
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        runBtn.textContent = 'Checking…';
+        results.innerHTML = '';
+        verdictEl.innerHTML = '';
+
+        let config;
+        try {
+          const res = await fetch('/api/rtc-config', { cache: 'no-store' });
+          config = await res.json();
+        } catch (e) {
+          verdictEl.className = 'verdict bad';
+          verdictEl.textContent = 'Could not reach /api/rtc-config: ' + e.message;
+          runBtn.disabled = false;
+          runBtn.textContent = 'Run check';
+          return;
+        }
+
+        const entries = explode(config.iceServers || []);
+        const done = [];
+        for (const entry of entries) {
+          const result = await gather(entry, entry.isTurn ? 8000 : 5000);
+          done.push(result);
+          render(result);
+        }
+
+        const turns = done.filter((d) => d.isTurn);
+        const anyRelay = turns.some((d) => d.types.includes('relay'));
+        const anySrflx = done.some((d) => d.types.includes('srflx'));
+        const tlsRelay = turns.some(
+          (d) => d.types.includes('relay') && (d.url.startsWith('turns:') || d.url.includes(':443')),
+        );
+
+        if (anyRelay && tlsRelay) {
+          verdictEl.className = 'verdict ok';
+          verdictEl.textContent =
+            `PASS — relay available, including over TLS/443. Source: ${config.turnSource}. This network should connect every pair.`;
+        } else if (anyRelay) {
+          verdictEl.className = 'verdict warn';
+          verdictEl.textContent =
+            `PARTIAL — a relay works, but not over TLS/443. Source: ${config.turnSource}. A stricter network than this one may still block some pairs.`;
+        } else if (anySrflx) {
+          verdictEl.className = 'verdict bad';
+          verdictEl.textContent =
+            `FAIL — no relay candidate from any TURN server. Source: ${config.turnSource}. Direct connections will mostly work here, but any pair needing a relay will silently fail.`;
+        } else {
+          verdictEl.className = 'verdict bad';
+          verdictEl.textContent =
+            'FAIL — no relay and no reflexive candidate. This network is blocking STUN and TURN outright.';
+        }
+
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run again';
+      });
+    </script>
+  </body>
+</html>

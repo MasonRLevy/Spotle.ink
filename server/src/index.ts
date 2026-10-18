@@ -150,9 +150,9 @@ peerServer.on('disconnect', (client) => {
  * creates its Peer, so TURN credentials stay out of the bundle and can be
  * changed on Render without a frontend rebuild.
  */
-app.get('/api/rtc-config', (_req, res) => {
+app.get('/api/rtc-config', async (_req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json(getRtcConfig());
+  res.json(await getRtcConfig());
 });
 
 app.get('/api/health', (_req, res) => {
@@ -200,6 +200,16 @@ app.use(refereeRouter);
 // Referee workbench (object pool browser + vision tester) at /referee.
 app.use('/referee', express.static(path.join(serverRoot, 'gemini-referee', 'public')));
 
+/**
+ * TURN check at /rtc-check.
+ *
+ * Open it on a phone on the venue wifi. It asks every configured ICE server
+ * for candidates and says whether a `relay` one came back, which is the only
+ * way to know a TURN server actually works from a given network - a blocked
+ * relay does not error, gathering just quietly comes back short.
+ */
+app.use('/rtc-check', express.static(path.join(serverRoot, 'diagnostics')));
+
 /* ---------------------- Built frontend ------------------------ */
 // In production this process serves the UI too, so the whole game is ONE
 // origin on ONE port: no proxy, no CORS, no second service to deploy, and
@@ -220,6 +230,7 @@ app.use((req, res, next) => {
     req.path.startsWith('/api') ||
     req.path.startsWith('/socket.io') ||
     req.path.startsWith('/peerjs') ||
+    req.path.startsWith('/rtc-check') ||
     req.path.startsWith('/referee')
   ) {
     return next();
@@ -377,6 +388,7 @@ httpServer.listen(PORT, async () => {
   console.log(`  Game + API      : http://localhost:${PORT}`);
   console.log(`  Referee bench   : http://localhost:${PORT}/referee`);
   console.log(`  PeerJS broker   : http://localhost:${PORT}/peerjs`);
+  console.log(`  TURN check      : http://localhost:${PORT}/rtc-check`);
   console.log(`  Objects loaded  : ${getAllObjects().length}`);
   console.log(describeRtcConfig());
 
