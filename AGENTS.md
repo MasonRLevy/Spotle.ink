@@ -1,4 +1,4 @@
-# Spotle.online - AI Agent Rules & Architecture
+# Spotle.ink - AI Agent Rules & Architecture
 
 ## PRIME DIRECTIVE: MULTI-AGENT SYNCHRONIZATION
 * **CRITICAL:** This file is the single source of truth for all AI coding agents working across the 4-person team.
@@ -21,8 +21,9 @@
 
 ## Current Status & Latest Actions
 *(Agents: Update this section before every push to keep the team synced!)*
-* **Last Updated:** 2026-10-17 (quality pass: self-hosted PeerJS broker, mesh watchdog, server-side ICE config, cheatRisks false-positive fix)
+* **Last Updated:** 2026-10-18 (README + this file brought back in line with the code; broker split-brain fix, retry back-off, Ink favicon)
 * **LIVE AT https://spotle.ink** (Render). Every push to `main` auto-deploys, so never push mid-demo - a redeploy restarts the process and rooms are in memory.
+* **!! CAMERAS DO NOT WORK ON EDUROAM WITHOUT A TURN SERVER !!** Confirmed in real play: the whole game works (lobby, photos, scoring, winning) but no one can see or hear anyone. That is not a bug - eduroam and most campus wifi block device-to-device traffic, so there is no direct path and a relay is mandatory. Set `TURN_CREDENTIAL_URL` (see the WebRTC section). A phone hotspot that everyone joins is the zero-setup workaround, since hotspots do not isolate clients.
 * **Voice chat on iPhone is still unverified.** The earpiece-routing workaround (an iOS-only WebAudio gain stage on top of element playback) can only add volume, never remove it, but nobody has confirmed it on a real handset. Test before judging.
 * **ONE SERVER.** The three original backends were merged into `server/`. `backend/` is **deprecated and does not run** - see `backend/DEPRECATED.md`. Do not add features there.
 
@@ -43,11 +44,17 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 * `server/gemini-referee/` - Gemini referee (prompts, vision, anti-cheat).
 * `frontend/src/hooks/useGameSocket.ts` - all room/round networking.
 * `frontend/src/hooks/useWebRTC.ts` - PeerJS mesh, camera flip, frame capture.
-* `frontend/src/components/` - `LobbyCamTile` (lobby feeds), `ThemePicker` (theme popup).
+* `frontend/src/hooks/rtcConnection.ts` - dial/glare/retry policy, pure and unit tested.
+* `frontend/src/utils/serverUrl.ts` - the one place that knows where the server is (sockets + API).
+* `frontend/src/components/` - `LobbyCamTile` (lobby feeds), `ThemePicker` (theme popup), `EmojiDisplay`.
+* `server/src/rtcConfig.ts` - ICE/TURN config served to the browser.
+* `server/diagnostics/` - the `/rtc-check` page.
 
 ### Game modes
-* **OBJECTS** - find the named item. Target drawn from `MASTER_ITEM_DATABASE`, filtered by theme.
-* **ME** - find a *player*. Everyone submits a selfie during `SELFIE_REGISTRATION` (30s), then hunts the assigned person.
+`GameMode` in `shared/game.ts`. `isPlayerHuntMode()` / `isHideAndSeekMode()` are the predicates to branch on - do not compare strings, since `HIDE_N_SEEK` is accepted as an alias of `HIDE_AND_SEEK`.
+* **OBJECTS** (lobby: CLASSIC) - find the named item. Target drawn from `MASTER_ITEM_DATABASE`, filtered by theme.
+* **ME** (lobby: ASSASSIN) - find a *player*. Everyone submits a selfie during `SELFIE_REGISTRATION` (30s), then hunts the assigned person. Each player gets their own `round:start` payload, because targets differ per player.
+* **HIDE_AND_SEEK** (lobby: HIDE N SEEK) - one random SEEKER, everyone else HIDER. A `HIDING_PHASE` of 30-60s (`room.settings.hidingDurationSec`) during which hiders' video tracks are disabled, then the seeker hunts and tags hiders with `SUBMIT_TAG_ATTEMPT`. One round, not ten; ends when all hiders are caught (SEEKER wins) or the timer expires (HIDERS win).
 
 ### Themes
 `ThemeType` = `UF_SWAMP` | `HACKATHON` | `GENERAL` | `OUTDOORS`, defined with icons in `GAME_THEMES` (`shared/game.ts`). The lobby Themes button opens the picker; the host's choice is host-only and lobby-only, stored on `room.settings.theme`, and only items whose `themes[]` contains it are drawn.
@@ -76,21 +83,24 @@ Camera needs `localhost` or HTTPS - on phones use the live site, not a LAN IP.
 * **The server is authoritative.** The client only sends a photo; it never decides scores.
 
 ### Socket events
-Client -> server: `room:create` `room:join` `peer:register` `room:set-mode` `room:set-theme` `game:start` `round:attempt` `round:give-up` `round:skip` `SUBMIT_SELFIE` `game:reset`
-Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `round:verdict` `round:end` `game:over` `game:error`
+Client -> server: `room:create` `room:join` `peer:register` `room:set-mode` `room:set-theme` `room:set-hiding-duration` `game:start` `round:attempt` `round:give-up` `round:skip` `SUBMIT_SELFIE` `SUBMIT_TAG_ATTEMPT` `game:reset`
+Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `START_HIDING_PHASE` `HIDING_PHASE_END` `PLAYER_CAUGHT` `round:verdict` `round:end` `game:over` `game:error`
+
+Captured frames (`round:attempt`, `SUBMIT_SELFIE`, `SUBMIT_TAG_ATTEMPT`) are all validated server-side as `data:image/(jpeg|png|webp);base64,` under 4MB before reaching Gemini.
 
 ### Gemini model - IMPORTANT
 `gemini-2.5-flash` is **dead** (404 "no longer available to new users"). Default is **`gemini-3.1-flash-lite`**, falling back to `gemini-3.8-flash` then `gemini-3.5-flash-lite` on 429/404/503. Override with `GEMINI_MODEL`. Key lives in `server/.env` (gitignored) and in Render's Environment tab.
 
 ### WebRTC mesh - how players see each other
-* **We run our own PeerJS broker** at `/peerjs` (`ExpressPeerServer` in `server/src/index.ts`) instead of relying on PeerJS's shared public cloud, which is rate-limited and was a prime suspect for pairs that silently never connected. The client falls back to the public cloud if ours is unreachable, so the worst case is the old behaviour. `SPOTLE_DISABLE_PEER_SERVER=1` turns ours off entirely - that is the one-env-var rollback on Render.
+* **We run our own PeerJS broker** at `/peerjs` (`ExpressPeerServer` in `server/src/index.ts`) instead of relying on PeerJS's shared public cloud, which is rate-limited and was a prime suspect for pairs that silently never connected. `SPOTLE_DISABLE_PEER_SERVER=1` turns ours off entirely - that is the one-env-var rollback on Render.
+* **NEVER make the broker a per-client choice.** An earlier version fell back to the PeerJS cloud when our broker hiccuped, which looked like belt-and-braces and was the opposite: two clients on two different brokers cannot discover each other at all, so one transient socket error silently moved a player onto another signalling network and made them invisible to the whole room, permanently, with both sides reporting the other as "not online". Removed. Our broker is the same process that serves the game, so if the room's socket is up the broker is reachable; a transient failure is a `peer.reconnect()`, not a reason to change networks. The same split happens across a deploy if someone holds an old tab open, which is what the stale-build banner is for.
 * **DO NOT mount a second WebSocket server naively.** `ws` with `{ server }` hijacks the HTTP server's `upgrade` event and destroys every upgrade it does not recognise, **including Socket.io's**. Doing that took the whole game down in testing: the host created a room, its socket was torn down immediately, the room was deleted as empty, and every join failed with "No room with that PIN". We pass `createWebSocketServer` a `noServer` instance and route upgrades ourselves. The broker's real WS path is `/peerjs/peerjs` and is logged at boot - do not hardcode it.
 * **ICE comes from the server**, `GET /api/rtc-config` (`server/src/rtcConfig.ts`): 3 STUN servers plus a TURN relay. Two ways to configure a real relay, checked in this order:
   * `TURN_CREDENTIAL_URL` - a provider's credentials API (Metered, Twilio). The server fetches the `iceServers` array at runtime, caches it for 10 minutes, and falls back to the public relay if the provider is down. **Only an API key goes in Render; no credential is ever committed.** This is the recommended route.
   * `TURN_URLS` + `TURN_USERNAME` + `TURN_CREDENTIAL` - static credentials, for a self-hosted coturn.
 * **MEASURED: the current default relay does not work.** Running `/rtc-check` against PeerJS's public TURN produced **no relay candidate at all** (both `eu-0` and `us-0`), while a real TURN server on the same machine and browser produced one immediately. So today the game has STUN only: pairs that can connect directly do, and any pair needing a relay fails silently. That is exactly the "I can see player 2 but not player 3" report. **Setting a real TURN is the single highest-value thing left before judging.**
 * **Always include a TLS/443 url** (`turns:...:443?transport=tcp`). That is the one that survives campus and corporate wifi, which routinely block UDP 3478. The boot log warns if your static config has no TLS url.
-* **Connection policy lives in `frontend/src/hooks/rtcConnection.ts`** and is unit tested (`npm run test:rtc`). Glare: both ends independently keep the call dialled by the smaller peer id, so exactly one PeerConnection survives per pair without a round trip. A watchdog re-dials any pair with no media (ICE `failed`, or no stream within 8s), bounded to 8 attempts. The old code dialled once and left a dead entry in the call map that blocked every later attempt, so one unlucky moment at join time meant that pair stayed dark all game.
+* **Connection policy lives in `frontend/src/hooks/rtcConnection.ts`** and is unit tested (`npm run test:rtc`). Glare: both ends independently keep the call dialled by the smaller peer id, so exactly one PeerConnection survives per pair without a round trip. A watchdog re-dials any pair with no media (ICE `failed`, or no stream within 8s): 8 quick attempts, then a 20s cooldown and a fresh budget, repeating indefinitely. The 8 are a back-off, **not** a give-up - an earlier version stopped forever, so a device with a bad first ~25 seconds (weak cell, late camera permission) was written off for the whole game even once its network recovered, and ended up the single player nobody could see. Before that, the code dialled once and left a dead entry in the call map that blocked every later attempt.
 * **Debugging a dark tile:** `GET /api/rooms/<pin>/debug` answers the server half (did everyone register a PeerJS id?). In the browser console, `__spotleMesh()` answers the client half (per-peer ICE state, whether video/audio are arriving, retry count, and which broker is in use).
 * **`/rtc-check`** is a standalone page that asks every configured ICE server for candidates and reports whether a `relay` one came back. **Open it on a phone on the venue wifi before judging** - a blocked relay does not throw, gathering just quietly comes back short, so this is the only way to know. Verdicts: PASS (relay incl. TLS/443), PARTIAL (relay but no TLS/443), FAIL (no relay). All three verdicts were validated against a real local TURN server.
 
@@ -98,6 +108,7 @@ Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `roun
 * Camera starts on the **selfie** lens (`INITIAL_FACING_MODE` in `useWebRTC.ts`); flip button switches to rear.
 * The lobby shows live unfiltered camera feeds. It is locked to the viewport on phones so nothing scrolls; from `sm:` up it takes natural height and tiles are full size, which can scroll on short laptop windows - that is deliberate.
 * Custom font is preloaded in `index.html` with `font-display: block` to stop the fallback flashing on refresh.
+* The site icon is Ink sitting (`frontend/public/favicon.ico` + PNGs, generated from `src/assets/Ink_sit.png`). The source is mostly transparent padding, so it is cropped to the artwork before scaling or he vanishes at 16px. Regenerate at the same sizes if the art changes; do not point a `<link rel=icon>` straight at the 1.2MB source.
 
 ### Testing
 * `npm run typecheck` (root) - server types + frontend production build
@@ -116,14 +127,37 @@ Server -> client: `room:update` `round:start` `PROMPT_SELFIE_REGISTRATION` `roun
 The Capacitor mobile wrapper merge (`3a70f6d`) was reverted in `5a51d6e`, so `frontend/android`, `capacitor.config.ts` and the Capacitor deps are **not** on main. Git still considers App_Testing merged, so **merging it again brings in nothing** - whoever lands the mobile app must `git revert 5a51d6e` first, then merge.
 
 ### Current Focus
-Playable end to end and deployed, with voice chat. The mesh now self-heals and every theme has enough items. Highest value next: **a dedicated TURN server** (set `TURN_CREDENTIAL_URL` - the plumbing, caching and fallback are built and tested; only the provider account and the Render env var are left, and `/rtc-check` measured that we currently have NO working relay), then **real-device checks of iOS voice-chat volume**, then a global leaderboard.
+Playable end to end and deployed. The mesh self-heals, every theme has enough items, and the referee no longer rejects real finds.
 
-Project Info:
-SPOTLE.ONLINE - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)
+**The one thing standing between this and working cameras at the venue is a TURN server.** `TURN_CREDENTIAL_URL` is all that is missing - the plumbing, caching, fallback and the `/rtc-check` verifier are built and tested, and `/rtc-check` measured that we currently have NO working relay. After that: **real-device iOS voice-chat volume**, then a global leaderboard.
+
+---
+
+## Project Info: THE ORIGINAL SPEC (HISTORICAL - DO NOT CODE FROM IT)
+
+> **Everything below is the hackathon pitch document as first written** (bar the
+> project name, which was Spotle.online back then and is now Spotle.ink). It is
+> kept for intent and scope, not as a description of the code. Several details
+> are now wrong, and the sections ABOVE win every time:
+>
+> | The spec below says | Reality |
+> | --- | --- |
+> | 4-letter room code (`"GATR"`) | 6-digit numeric PIN |
+> | `gemini-2.5-flash` | Dead (404). `gemini-3.1-flash-lite` + fallbacks |
+> | `totalRounds` default 3, 60s rounds | 10 rounds, 90s |
+> | `RoomStatus` without `SELFIE_REGISTRATION` / `HIDING_PHASE` | Both exist |
+> | `Player.status` without `FOUND` / `SKIPPED` | Both exist |
+> | `+100 pts` and first-verified-wins locks the round | Placement scoring 4/3/2/1; everyone keeps hunting |
+> | Gemini generates the target per round | Targets come from `MASTER_ITEM_DATABASE` |
+> | `/api/generate-object`, `/api/verify-object` | Game traffic is Socket.io; those REST routes are the referee bench only |
+>
+> The live type contract is `shared/game.ts`. Read that, not the interfaces below.
+
+SPOTLE.INK - MASTER PROJECT SPEC & AI CONTEXT SHEET (SWAMPHACKS XII)
 
 1. PROJECT OVERVIEW & ELEVATOR PITCH
 --------------------------------------------------------------------------------
-Project Name: Spotle.online
+Project Name: Spotle.ink
 Concept: A real-time multiplayer live-camera scavenger hunt web app (2-4 players).
 How it Works:
 - Players join a shared match lobby via a 4-letter Room Code and see each other's
@@ -251,11 +285,11 @@ export interface VerificationResponse {
 
 GEMINI API PROMPTS & STRUCTURED OUTPUT SPEC
 Use @google/genai with gemini-2.5-flash and responseMimeType: "application/json".
-ENDPOINT 1: POST /api/generate-object Input: { theme: ThemeType, usedObjects: string[] } System Prompt: "You are the Game Master for Spotle.online, a fast-paced live scavenger hunt. Generate ONE physical, safe, everyday object that players can realistically find within 30 seconds given the theme.
+ENDPOINT 1: POST /api/generate-object Input: { theme: ThemeType, usedObjects: string[] } System Prompt: "You are the Game Master for Spotle.ink, a fast-paced live scavenger hunt. Generate ONE physical, safe, everyday object that players can realistically find within 30 seconds given the theme.
 Theme 'GENERAL': Common household/dorm items (mug, shoe, spoon, keys, backpack).
 Theme 'UF_SWAMP': University of Florida / college campus items (Gator logo item, student ID card, blue or orange clothing, notebook, energy drink).
 Theme 'HACKATHON': Items at a coding hackathon (laptop charger, sticker, headphones, hoodie, badge lanyard, mouse). Do NOT repeat any item in the usedObjects list. Return strict JSON: { targetObject: string, hint: string, difficulty: 'EASY' | 'MEDIUM' | 'HARD' }"
-ENDPOINT 2: POST /api/verify-object Input: { targetObject: string, imageBase64: string, playerName: string } System Prompt: "You are the AI Referee for Spotle.online. A player named {{playerName}} claims they found the target object: '{{targetObject}}'. Analyze the attached photo carefully:
+ENDPOINT 2: POST /api/verify-object Input: { targetObject: string, imageBase64: string, playerName: string } System Prompt: "You are the AI Referee for Spotle.ink. A player named {{playerName}} claims they found the target object: '{{targetObject}}'. Analyze the attached photo carefully:
 Determine if '{{targetObject}}' is clearly visible in the photo.
 ANTI-CHEAT CHECK: Check if the player is cheating by pointing their camera at another digital screen/monitor/phone displaying a picture of the object. If moire patterns, monitor bezels, or browser UI surround the object, set isScreenCheat to true and verified to false.
 Write a punchy, entertaining 1-sentence referee call (max 18 words) explaining why it counts or roasting their failed attempt. Return strict JSON matching VerificationResponse."
